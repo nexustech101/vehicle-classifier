@@ -1,40 +1,60 @@
-# Vehicle Classification ML Pipeline
+# Vehicle Classifier: Enterprise-Grade Multi-Dimensional Classification
 
-## Project Overview
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
+![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange)
+![Flask](https://img.shields.io/badge/Flask-2.0%2B-black)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Status](https://img.shields.io/badge/Status-Development%20-yellow)
+<!-- ![Status](https://img.shields.io/badge/Status-Production-Ready%20-brightgreen) -->
 
-**Vehicle Classifier** is a production-ready deep learning system for **multi-dimensional vehicle classification** from 100×90 greyscale images. The pipeline includes a robust prediction pipeline, professional REST API with 7 endpoints, intelligent model caching, batch processing, and report generation.
+## Overview
 
-### Key Capabilities
-- 🎯 **9-Dimensional Classification**: Make (100), Type (12), Color (10), Decade (70), Country (70), Condition (regression), Stock/Modified (binary), Functional Utility (8), Model (~150)
-- 🔌 **REST API**: 7 endpoints for single/batch classification and reporting
-- 📊 **Professional Reports**: JSON, HTML, and dict formats with summaries & recommendations
-- 📈 **Confidence Metrics**: Entropy-based uncertainty, rank-aware analysis
-- 🏗️ **Production Design**: 8 design patterns, SOLID principles, 100% type hints
-- ⚡ **Performance**: 50-100ms per image, batch processing, intelligent caching
+Production-ready deep learning system for **9-dimensional vehicle classification** from 100×90 greyscale images. Includes orchestrated multi-model pipeline, Flask REST API (7 endpoints), intelligent caching, batch processing, and professional report generation.
+
+**Key Features:**
+- 9 specialized classifiers (Make, Model, Type, Color, Decade, Country, Condition, Stock/Modified, Functional Utility)
+- Flask REST API with 7 endpoints (classify, batch, report, metadata, health, docs)
+- 8 design patterns (Singleton, Factory, Strategy, Pipeline, Data Mapper, Builder, Dependency Injection, Repository)
+- Confidence metrics with entropy-based uncertainty quantification
+- Single & batch processing with JSON/HTML report generation
+- Model caching via Singleton pattern (thread-safe)
+- 100% type hints, SOLID principles, comprehensive error handling
+- 50-100ms inference per image, intelligent registry
 
 ---
 
-## 🚀 Quick Start (5 minutes)
+## Table of Contents
 
-### 1. Install
+1. [Quick Start](#quick-start)
+2. [Installation](#installation)
+3. [REST API](#rest-api)
+4. [Python API](#python-api)
+5. [Architecture](#architecture)
+6. [Classification Dimensions](#classification-dimensions)
+7. [Advanced Usage](#advanced-usage)
+8. [Performance](#performance)
+9. [Deployment](#deployment)
+10. [Troubleshooting](#troubleshooting)
+
+---
+
+## Quick Start
+
+### 30-Second Setup
+
 ```bash
+# Install dependencies
 pip install -r requirements.txt
-```
 
-### 2. Verify
-```bash
-python -c "from prediction_api import VehicleClassificationAPI; print('✓')"
-```
-
-### 3. Start API Server
-```bash
+# Start API server
 python app.py
+
+# View API documentation
+# Open: http://localhost:5000/api/docs
 ```
 
-### 4. View Documentation
-Open: `http://localhost:5000/api/docs`
+### First Classification (Python)
 
-### 5. First Classification
 ```python
 from prediction_api import VehicleClassificationAPI
 
@@ -43,9 +63,39 @@ result = api.classify_image("vehicle.jpg")
 print(result['data']['predictions'])
 ```
 
+### First Classification (cURL)
+
+```bash
+curl -X POST -F "file=@vehicle.jpg" http://localhost:5000/api/vehicle/classify
+```
+
 ---
 
-## 📖 Usage Guide
+## Installation
+
+### Prerequisites
+- Python 3.8+
+- pip or conda
+- 4 GB RAM (8 GB recommended)
+- 2 GB GPU VRAM (optional, for faster inference)
+
+### Setup
+
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Verify
+python -c "from prediction_api import VehicleClassificationAPI; print('✓ Ready')"
+```
+
+---
+
+## REST API
 
 ### Python API
 
