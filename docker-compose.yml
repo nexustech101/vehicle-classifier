@@ -42,6 +42,7 @@ services:
       - TRUSTED_HOSTS=localhost,127.0.0.1,app
       - DATABASE_URL=sqlite:///db/vehicle_classifier.db
     volumes:
+      - ./src:/app/src
       - ./uploads:/app/uploads
       - ./logs:/app/logs
       - ./checkpoints:/app/checkpoints

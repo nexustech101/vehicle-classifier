@@ -7,6 +7,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from src.core.database import Database
 
 # Configuration
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
@@ -16,6 +17,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 # Password hashing
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+
+# Database instance
+db = Database()
 
 
 def hash_password(password: str) -> str:
@@ -66,7 +70,15 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
         username: str = payload.get("sub")
         if username is None:
             raise HTTPException(status_code=401, detail="Invalid token")
-        return {"username": username, "role": payload.get("role", "user")}
+        
+        # Verify user still exists and is active
+        user = db.get_user_by_username(username)
+        if not user or not user.get("is_active"):
+            raise HTTPException(status_code=401, detail="User not found or inactive")
+        
+        return {"username": username, "role": user.get("role", "user"), "email": user.get("email")}
+    except HTTPException:
+        raise
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
@@ -74,7 +86,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
 def require_role(required_role: str):
     """Dependency to require specific role."""
     async def role_checker(current_user: Dict = Depends(get_current_user)):
-        if current_user.get("role") != required_role and current_user.get("role") != "admin":
+        if current_user.get("role") not in [required_role, "admin"]:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Insufficient permissions"
@@ -83,45 +95,16 @@ def require_role(required_role: str):
     return role_checker
 
 
-# Mock user database (replace with real database in production)
-# Pre-hashed passwords for testuser:testpass and admin_user:adminpass
-# Generated with: pwd_context.hash("testpass") and pwd_context.hash("adminpass")
-USERS_DB_INIT = {
-    "testuser": {
-        "username": "testuser",
-        "plaintext_password": "testpass",
-        "role": "user",
-        "active": True
-    },
-    "admin_user": {
-        "username": "admin_user",
-        "plaintext_password": "adminpass",
-        "role": "admin",
-        "active": True
-    }
-}
-
-# Initialize USERS_DB with hashed passwords
-USERS_DB = {}
-for username, user_data in USERS_DB_INIT.items():
-    USERS_DB[username] = {
-        "username": user_data["username"],
-        "password": hash_password(user_data["plaintext_password"]),
-        "role": user_data["role"],
-        "active": user_data["active"]
-    }
-
-
 def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
-    """Authenticate user with username and password."""
-    user = USERS_DB.get(username)
+    """Authenticate user with username and password from database."""
+    user = db.get_user_by_username(username)
     if not user:
         return None
     
     if not verify_password(password, user["password"]):
         return None
     
-    if not user.get("active"):
+    if not user.get("is_active"):
         return None
     
     return user

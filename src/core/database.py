@@ -23,6 +23,26 @@ class Database:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             
+            # Users table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE NOT NULL,
+                    email TEXT UNIQUE NOT NULL,
+                    password TEXT NOT NULL,
+                    role TEXT DEFAULT 'user',
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_login TIMESTAMP
+                )
+            """)
+            
+            # Create indices for users
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)")
+            
             # Reports table
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS reports (
@@ -31,7 +51,8 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     data TEXT NOT NULL,
                     status TEXT DEFAULT 'active',
-                    user_id TEXT
+                    user_id TEXT,
+                    FOREIGN KEY (user_id) REFERENCES users(username)
                 )
             """)
             
@@ -85,6 +106,142 @@ class Database:
         conn.row_factory = sqlite3.Row
         return conn
     
+    def create_user(self, username: str, email: str, password: str, 
+                   role: str = 'user') -> bool:
+        """Create a new user account."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO users (username, email, password, role, is_active)
+                    VALUES (?, ?, ?, ?, 1)
+                """, (username, email, password, role))
+                conn.commit()
+                logger.info(f"User created: {username} with role {role}")
+                return True
+        except sqlite3.IntegrityError as e:
+            logger.error(f"User creation failed - duplicate username or email: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"User creation error: {e}")
+            return False
+    
+    def get_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
+        """Retrieve user by username."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, username, email, password, role, is_active, created_at, last_login
+                FROM users
+                WHERE username = ?
+            """, (username,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+        return None
+    
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Retrieve user by email."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, username, email, password, role, is_active, created_at, last_login
+                FROM users
+                WHERE email = ?
+            """, (email,))
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+        return None
+    
+    def update_user_role(self, username: str, role: str) -> bool:
+        """Update user role."""
+        valid_roles = {'user', 'admin'}
+        if role not in valid_roles:
+            logger.error(f"Invalid role: {role}")
+            return False
+        
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE users
+                    SET role = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE username = ?
+                """, (role, username))
+                conn.commit()
+                logger.info(f"User role updated: {username} -> {role}")
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"User role update failed: {e}")
+            return False
+    
+    def update_user_status(self, username: str, is_active: bool) -> bool:
+        """Activate or deactivate user."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE users
+                    SET is_active = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE username = ?
+                """, (int(is_active), username))
+                conn.commit()
+                logger.info(f"User status updated: {username} -> active={is_active}")
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"User status update failed: {e}")
+            return False
+    
+    def update_last_login(self, username: str) -> bool:
+        """Update user's last login timestamp."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    UPDATE users
+                    SET last_login = CURRENT_TIMESTAMP
+                    WHERE username = ?
+                """, (username,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"Last login update failed: {e}")
+            return False
+    
+    def delete_user(self, username: str) -> bool:
+        """Delete user account."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM users WHERE username = ?", (username,))
+                conn.commit()
+                logger.info(f"User deleted: {username}")
+                return cursor.rowcount > 0
+        except Exception as e:
+            logger.error(f"User deletion failed: {e}")
+            return False
+    
+    def list_users(self, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        """List all users (admin only)."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, username, email, role, is_active, created_at, last_login
+                FROM users
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    def user_exists(self, username: str) -> bool:
+        """Check if user exists."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+            return cursor.fetchone() is not None
+
     def save_report(self, vehicle_id: str, report_data: Dict[str, Any], 
                    user_id: Optional[str] = None) -> str:
         """Save report to database."""
@@ -162,14 +319,16 @@ class Database:
             return [dict(row) for row in rows]
     
     def log_audit(self, user_id: str, action: str, resource: str, 
-                 details: Optional[str] = None, ip_address: Optional[str] = None):
+                 details: Optional[Dict[str, Any]] = None, ip_address: Optional[str] = None):
         """Log audit event."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
+            # Convert details dict to JSON string if provided
+            details_json = json.dumps(details) if details else None
             cursor.execute("""
                 INSERT INTO audit_log (user_id, action, resource, details, ip_address)
                 VALUES (?, ?, ?, ?, ?)
-            """, (user_id, action, resource, details, ip_address))
+            """, (user_id, action, resource, details_json, ip_address))
             conn.commit()
         
         logger.info(f"Audit log: {user_id} {action} {resource}")
