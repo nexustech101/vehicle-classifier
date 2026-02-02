@@ -1,0 +1,21 @@
+@layer components {
+  .btn-primary {
+    @apply px-6 py-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition-colors;
+  }
+
+  .btn-secondary {
+    @apply px-6 py-3 bg-gray-200 text-gray-800 font-semibold rounded-lg hover:bg-gray-300 transition-colors;
+  }
+
+  .card {
+    @apply bg-white rounded-lg shadow-md p-6;
+  }
+
+  .section-title {
+    @apply text-3xl font-bold text-gray-900 mb-4;
+  }
+
+  .section-subtitle {
+    @apply text-lg text-gray-600 mb-8;
+  }
+}

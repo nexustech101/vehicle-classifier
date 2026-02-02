@@ -7,8 +7,8 @@ from keras.layers import (
     RandomContrast, Rescaling, RandomBrightness
 )
 from keras.optimizers import Adam
-from keras.optimizers.schedules import CosineDecay, ReduceLROnPlateau
-from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.optimizers.schedules import CosineDecay
+from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from keras.applications import EfficientNetB0, ResNet50
 from keras.losses import SparseCategoricalCrossentropy, BinaryCrossentropy, MeanSquaredError
 import numpy as np

@@ -31,12 +31,14 @@ class Database:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     data TEXT NOT NULL,
                     status TEXT DEFAULT 'active',
-                    user_id TEXT,
-                    INDEX(vehicle_id),
-                    INDEX(created_at),
-                    INDEX(user_id)
+                    user_id TEXT
                 )
             """)
+            
+            # Create indices for reports
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_reports_vehicle_id ON reports(vehicle_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_reports_created_at ON reports(created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_reports_user_id ON reports(user_id)")
             
             # Classification results table
             cursor.execute("""
@@ -47,11 +49,14 @@ class Database:
                     confidence REAL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     processing_time_ms REAL,
-                    user_id TEXT,
-                    INDEX(image_path),
-                    INDEX(created_at)
+                    user_id TEXT
                 )
             """)
+            
+            # Create indices for classifications
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_classifications_image_path ON classifications(image_path)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_classifications_created_at ON classifications(created_at)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_classifications_user_id ON classifications(user_id)")
             
             # Audit log table
             cursor.execute("""
@@ -62,12 +67,14 @@ class Database:
                     resource TEXT,
                     details TEXT,
                     ip_address TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX(user_id),
-                    INDEX(action),
-                    INDEX(created_at)
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # Create indices for audit_log
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log(user_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at)")
             
             conn.commit()
             logger.info(f"Database initialized at {self.db_path}")
@@ -224,3 +231,15 @@ class Database:
                 'total_classifications': classification_count,
                 'average_processing_time_ms': avg_time
             }
+    
+    def health_check(self) -> bool:
+        """Check database health by executing a simple query."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT COUNT(*) FROM reports")
+                cursor.fetchone()
+            return True
+        except Exception as e:
+            logger.error(f"Database health check failed: {e}")
+            return False

@@ -14,7 +14,7 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
 # Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
@@ -84,20 +84,32 @@ def require_role(required_role: str):
 
 
 # Mock user database (replace with real database in production)
-USERS_DB = {
+# Pre-hashed passwords for testuser:testpass and admin_user:adminpass
+# Generated with: pwd_context.hash("testpass") and pwd_context.hash("adminpass")
+USERS_DB_INIT = {
     "testuser": {
         "username": "testuser",
-        "password": hash_password("testpass"),
+        "plaintext_password": "testpass",
         "role": "user",
         "active": True
     },
     "admin_user": {
         "username": "admin_user",
-        "password": hash_password("adminpass"),
+        "plaintext_password": "adminpass",
         "role": "admin",
         "active": True
     }
 }
+
+# Initialize USERS_DB with hashed passwords
+USERS_DB = {}
+for username, user_data in USERS_DB_INIT.items():
+    USERS_DB[username] = {
+        "username": user_data["username"],
+        "password": hash_password(user_data["plaintext_password"]),
+        "role": user_data["role"],
+        "active": user_data["active"]
+    }
 
 
 def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:

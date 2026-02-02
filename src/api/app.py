@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import FastAPI, UploadFile, File, Form, Depends, status
+from contextlib import asynccontextmanager
+from fastapi import APIRouter, FastAPI, UploadFile, File, Form, Depends, status
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -55,18 +56,59 @@ request_logger = RequestLogger()
 
 logger.info("VehicleClassificationAPI initialized")
 
-# Initialize FastAPI
+
+# Security: Trusted hosts middleware
+trusted_hosts = os.getenv("TRUSTED_HOSTS", "localhost,127.0.0.1").split(",")
+
+# Lifespan context manager for startup/shutdown
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Manage app lifecycle - startup and shutdown."""
+    # Startup
+    try:
+        # Database is already initialized in __init__
+        logger.info("Database initialized")
+        
+        # Check Redis
+        try:
+            if redis_client.ping():
+                logger.info("Redis connected")
+        except:
+            logger.warning("Redis not available - caching disabled")
+        
+        logger.info("FastAPI startup: All services initialized")
+    except Exception as e:
+        logger.error(f"Startup failed: {e}")
+        raise
+    
+    yield
+    
+    # Shutdown
+    try:
+        # Close database connections
+        db.close()
+        logger.info("Database closed")
+        
+        # Close Redis
+        try:
+            redis_client.close()
+        except:
+            pass
+        
+        logger.info("FastAPI shutdown: All connections closed")
+    except Exception as e:
+        logger.error(f"Shutdown failed: {e}")
+
+
+# Initialize FastAPI with lifespan
 app = FastAPI(
     title="Vehicle Classification API",
     description="Production-grade multi-dimensional vehicle classification with authentication",
     version="2.1",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
-
-# Security: Trusted hosts middleware
-trusted_hosts = os.getenv("TRUSTED_HOSTS", "localhost,127.0.0.1").split(",")
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
 
 # CORS middleware (restricted)
 cors_origins = validate_cors_origins(
@@ -79,29 +121,14 @@ app.add_middleware(
     allow_methods=["GET", "POST"],
     allow_headers=["Authorization", "Content-Type"],
 )
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=trusted_hosts)
 
 
-# Request/response models
-class TokenRequest(BaseModel):
-    """Token request model."""
-    username: str
-    password: str
-
-
-class TokenResponse(BaseModel):
-    """Token response model."""
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int = 1800
-
-
-class HealthResponse(BaseModel):
-    """Health check response."""
-    status: str
-    timestamp: str
-    redis_connected: bool
-    database_healthy: bool
-
+# Define APIRouter instance to organize endpoints and handle versioning
+router = APIRouter(
+    prefix="/api/v2",
+    tags=["Vehicle Classification API v2"]
+)
 
 # Middleware for security headers
 @app.middleware("http")
@@ -195,7 +222,7 @@ async def load_image(file: UploadFile) -> tuple:
     if not allowed_file(safe_filename):
         logger.warning(f"Invalid file type: {file.filename}")
         raise ValidationError(
-            detail="File type not allowed. Supported: jpg, jpeg, png, bmp, gif"
+            message="File type not allowed. Supported: jpg, jpeg, png, bmp, gif"
         )
     
     try:
@@ -203,7 +230,7 @@ async def load_image(file: UploadFile) -> tuple:
         
         # Validate image file
         if not validate_image_file(contents):
-            raise ValidationError(detail="Invalid image file")
+            raise ValidationError(message="Invalid image file")
         
         image = Image.open(io.BytesIO(contents)).convert('L')
         image_array = np.array(image).astype(np.float32) / 255.0
@@ -219,7 +246,7 @@ async def load_image(file: UploadFile) -> tuple:
         raise
     except Exception as e:
         logger.error(f"Image loading failed for {file.filename}: {e}")
-        raise ValidationError(detail=f"Error processing image: {str(e)}")
+        raise ValidationError(message=f"Error processing image: {str(e)}")
 
 
 def format_response(status: str, data: dict = None, message: str = None) -> dict:
@@ -240,7 +267,7 @@ def format_response(status: str, data: dict = None, message: str = None) -> dict
 
 # ==================== AUTHENTICATION ====================
 
-@app.post("/auth/token", response_model=TokenResponse)
+@router.post("/auth/token", response_model=TokenResponse)
 async def login(credentials: TokenRequest):
     """
     Authenticate user and return JWT token.
@@ -254,10 +281,14 @@ async def login(credentials: TokenRequest):
         user = authenticate_user(credentials.username, credentials.password)
         if not user:
             logger.warning(f"Failed login attempt for user: {credentials.username}")
-            raise AuthenticationError(detail="Invalid credentials")
+            raise AuthenticationError(message="Invalid credentials")
         
-        # Create token
-        token = create_access_token(user)
+        # Create token with proper JWT claims
+        token_data = {
+            "sub": user["username"],
+            "role": user.get("role", "user")
+        }
+        token = create_access_token(token_data)
         logger.info(f"User authenticated: {credentials.username}")
         
         return TokenResponse(
@@ -269,12 +300,12 @@ async def login(credentials: TokenRequest):
         raise
     except Exception as e:
         logger.error(f"Authentication failed: {e}")
-        raise ServiceUnavailableError(detail="Authentication service unavailable")
+        raise ServiceUnavailableError(service="Authentication")
 
 
 # ==================== HEALTH & METADATA ====================
 
-@app.get("/health", response_model=HealthResponse)
+@router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Service health check endpoint - no auth required."""
     try:
@@ -302,10 +333,10 @@ async def health_check():
         )
     except Exception as e:
         logger.error(f"Health check failed: {e}")
-        raise ServiceUnavailableError(detail="Health check failed")
+        raise ServiceUnavailableError(service="Health")
 
 
-@app.get("/api/models/metadata")
+@router.get("/models/metadata")
 async def get_model_metadata(current_user: dict = Depends(get_current_user)):
     """Get metadata about available models - requires authentication."""
     try:
@@ -323,12 +354,12 @@ async def get_model_metadata(current_user: dict = Depends(get_current_user)):
         return format_response('success', metadata['data'])
     except Exception as e:
         logger.error(f"Metadata retrieval failed: {e}")
-        raise ServiceUnavailableError(detail="Metadata retrieval failed")
+        raise ServiceUnavailableError(service="Metadata")
 
 
 # ==================== CLASSIFICATION ====================
 
-@app.post("/api/vehicle/classify", response_model=ClassificationResponse)
+@router.post("/vehicle/classify", response_model=ClassificationResponse)
 async def classify_single(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
@@ -356,7 +387,7 @@ async def classify_single(
         
         # Record metrics
         metrics.record_latency(
-            endpoint="/api/vehicle/classify",
+            endpoint="/vehicle/classify",
             duration_ms=result.processing_time_ms
         )
         metrics.record_classification(
@@ -378,10 +409,10 @@ async def classify_single(
     except Exception as e:
         logger.error(f"Classification failed: {e}")
         metrics.record_error(error_type="CLASSIFICATION_ERROR")
-        raise ServiceUnavailableError(detail="Classification failed")
+        raise ServiceUnavailableError(service="Classification")
 
 
-@app.post("/api/vehicle/classify-batch", response_model=BatchResponse)
+@router.post("/vehicle/classify-batch", response_model=BatchResponse)
 async def classify_batch(
     files: List[UploadFile] = File(...),
     current_user: dict = Depends(get_current_user)
@@ -449,7 +480,7 @@ async def classify_batch(
         
         # Record metrics
         metrics.record_latency(
-            endpoint="/api/vehicle/classify-batch",
+            endpoint="/vehicle/classify-batch",
             duration_ms=(time.time() - start_time) * 1000
         )
         
@@ -474,12 +505,12 @@ async def classify_batch(
     except Exception as e:
         logger.error(f"Batch classification failed: {e}")
         metrics.record_error(error_type="BATCH_ERROR")
-        raise ServiceUnavailableError(detail="Batch classification failed")
+        raise ServiceUnavailableError(service="Batch Classification")
 
 
 # ==================== REPORTING ====================
 
-@app.post("/api/vehicle/report")
+@router.post("/vehicle/report")
 async def generate_report(
     file: UploadFile = File(...),
     format: str = Form('json'),
@@ -536,10 +567,10 @@ async def generate_report(
     except Exception as e:
         logger.error(f"Report generation failed: {e}")
         metrics.record_error(error_type="REPORT_ERROR")
-        raise ServiceUnavailableError(detail="Report generation failed")
+        raise ServiceUnavailableError(service="Report Generation")
 
 
-@app.get("/api/vehicle/report/{vehicle_id}")
+@router.get("/vehicle/report/{vehicle_id}")
 async def get_report(
     vehicle_id: str,
     current_user: dict = Depends(get_current_user)
@@ -548,7 +579,7 @@ async def get_report(
     try:
         # Check for path traversal
         if check_path_traversal(vehicle_id):
-            raise ValidationError(detail="Invalid vehicle ID format")
+            raise ValidationError(message="Invalid vehicle ID format")
         
         logger.info(f"Report retrieval requested by {current_user['username']}: {vehicle_id}")
         
@@ -567,7 +598,7 @@ async def get_report(
         report = db.get_report(vehicle_id)
         if not report:
             metrics.record_cache_miss()
-            raise NotFoundError(detail=f"Report not found: {vehicle_id}")
+            raise NotFoundError(resource=f"Report {vehicle_id}")
         
         # Log audit
         db.log_audit(
@@ -584,19 +615,19 @@ async def get_report(
         raise
     except Exception as e:
         logger.error(f"Report retrieval failed: {e}")
-        raise ServiceUnavailableError(detail="Report retrieval failed")
+        raise ServiceUnavailableError(service="Report Retrieval")
 
 
 # ==================== MONITORING ====================
 
-@app.get("/metrics")
+@router.get("/metrics")
 async def get_metrics(current_user: dict = Depends(get_current_user)):
     """Get Prometheus metrics - requires authentication and admin role."""
     try:
         # Only admins can view metrics
         if current_user.get('role') != 'admin':
             from src.core.errors import AuthorizationError
-            raise AuthorizationError(detail="Admin access required")
+            raise AuthorizationError(message="Admin access required")
         
         logger.info(f"Metrics requested by {current_user['username']}")
         
@@ -610,12 +641,12 @@ async def get_metrics(current_user: dict = Depends(get_current_user)):
         raise
     except Exception as e:
         logger.error(f"Metrics retrieval failed: {e}")
-        raise ServiceUnavailableError(detail="Metrics unavailable")
+        raise ServiceUnavailableError(service="Metrics")
 
 
 # ==================== ROOT & STARTUP ====================
 
-@app.get("/")
+@router.get("/")
 async def root():
     """Root endpoint with API documentation link."""
     logger.info("Root endpoint accessed")
@@ -627,45 +658,7 @@ async def root():
         "auth": "/auth/token"
     }
 
-
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on app startup."""
-    try:
-        # Initialize database
-        db.init_schema()
-        logger.info("Database initialized")
-        
-        # Check Redis
-        try:
-            if redis_client.ping():
-                logger.info("Redis connected")
-        except:
-            logger.warning("Redis not available - caching disabled")
-        
-        logger.info("FastAPI startup: All services initialized")
-    except Exception as e:
-        logger.error(f"Startup failed: {e}")
-        raise
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on app shutdown."""
-    try:
-        # Close database connections
-        db.close()
-        logger.info("Database closed")
-        
-        # Close Redis
-        try:
-            redis_client.close()
-        except:
-            pass
-        
-        logger.info("FastAPI shutdown: All connections closed")
-    except Exception as e:
-        logger.error(f"Shutdown failed: {e}")
+app.include_router(router)
 
 
 if __name__ == "__main__":
