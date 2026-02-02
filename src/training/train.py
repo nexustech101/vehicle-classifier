@@ -3,6 +3,7 @@ Robust ML training pipeline for vehicle classification.
 
 This module orchestrates the training of multiple vehicle classifier models
 using design patterns (Strategy, Factory, Pipeline) and DRY principles.
+Includes comprehensive structured logging for training metrics and diagnostics.
 """
 
 import os
@@ -15,25 +16,19 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, asdict
 
 import numpy as np
-from preprocessing import ImagePreprocessor, BatchProcessor, DataAugmentation
+from src.preprocessing.processor import ImagePreprocessor, BatchProcessor, DataAugmentation
+from src.api.logging_config import setup_training_logger, setup_evaluation_logger
 
 # Import all classifiers
-from models import (
+from src.models.classifiers import (
     MakeClassifier, ModelClassifier, TypeClassifier, ColorClassifier,
     DecadeClassifier, CountryClassifier, ConditionClassifier,
     StockOrModedClassifier, FunctionalUtilityClassifier
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('training.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+# Setup dedicated training logging
+logger = setup_training_logger()
+eval_logger = setup_evaluation_logger()
 
 
 @dataclass
@@ -170,14 +165,22 @@ class ModelTrainer:
             verbose=self.config.verbose
         )
         
-        logger.info(f"Starting training for {self.model_class.__name__}")
+        model_name = self.model_class.__name__
+        logger.info(f"Starting training for {model_name}")
+        logger.info(f"  - Batch size: {self.config.batch_size}")
+        logger.info(f"  - Epochs: {self.config.epochs}")
+        logger.info(f"  - Learning rate: {self.config.learning_rate}")
+        logger.info(f"  - Training samples: {len(x_train)}, Test samples: {len(x_test)}")
         
         # Train using strategy
         self.metrics = self.strategy.train(
             self.model, x_train, y_train, x_test, y_test, self.config
         )
         
-        logger.info(f"Training complete. Metrics: {self.metrics}")
+        logger.info(f"Training complete for {model_name}")
+        logger.info(f"  - Final accuracy: {self.metrics.get('accuracy', 'N/A')}")
+        logger.info(f"  - Final loss: {self.metrics.get('loss', 'N/A')}")
+        
         return self.metrics
     
     def save_model(self, checkpoint_dir: str):
@@ -348,34 +351,59 @@ class TrainingPipeline:
     
     def run(self):
         """Execute complete training pipeline."""
-        logger.info("Starting Vehicle Classification Training Pipeline")
-        logger.info(f"Config: {asdict(self.config)}")
+        start_time = datetime.now()
+        logger.info("=" * 80)
+        logger.info("STARTING VEHICLE CLASSIFICATION TRAINING PIPELINE")
+        logger.info("=" * 80)
+        logger.info(f"Configuration:")
+        for key, value in asdict(self.config).items():
+            logger.info(f"  - {key}: {value}")
+        logger.info("=" * 80)
         
-        # Phase 1: Data preparation
-        x_train, x_test, y_train, y_test, class_mapping = self.prepare_data()
+        try:
+            # Phase 1: Data preparation
+            logger.info("PHASE 1: Data Preparation")
+            x_train, x_test, y_train, y_test, class_mapping = self.prepare_data()
+            logger.info(f"  - Training samples: {len(x_train)}")
+            logger.info(f"  - Test samples: {len(x_test)}")
+            
+            # Phase 2: Model training
+            logger.info("PHASE 2: Training All Models")
+            self.train_all_models(x_train, y_train, x_test, y_test)
+            logger.info(f"  - Completed: {len(self.trained_models)}/{len(self.MODEL_REGISTRY)} models")
+            
+            # Phase 3: Save models
+            logger.info("PHASE 3: Saving Models")
+            self.save_all_models()
+            logger.info(f"  - Models saved to: {self.config.checkpoint_dir}")
+            
+            # Phase 4: Save results and report
+            logger.info("PHASE 4: Saving Results")
+            self.save_results()
+            self.config.save(
+                Path(self.config.checkpoint_dir) / 'config.json'
+            )
+            
+            # Print report
+            report = self.generate_report()
+            print(report)
+            
+            # Save report to file
+            report_path = Path(self.config.checkpoint_dir) / 'training_report.txt'
+            with open(report_path, 'w') as f:
+                f.write(report)
+            
+            elapsed = (datetime.now() - start_time).total_seconds()
+            logger.info("=" * 80)
+            logger.info(f"TRAINING PIPELINE COMPLETE (Duration: {elapsed:.2f}s)")
+            logger.info(f"Checkpoint directory: {self.config.checkpoint_dir}")
+            logger.info("=" * 80)
         
-        # Phase 2: Model training
-        self.train_all_models(x_train, y_train, x_test, y_test)
-        
-        # Phase 3: Save models
-        self.save_all_models()
-        
-        # Phase 4: Save results and report
-        self.save_results()
-        self.config.save(
-            Path(self.config.checkpoint_dir) / 'config.json'
-        )
-        
-        # Print report
-        report = self.generate_report()
-        print(report)
-        
-        # Save report to file
-        report_path = Path(self.config.checkpoint_dir) / 'training_report.txt'
-        with open(report_path, 'w') as f:
-            f.write(report)
-        
-        logger.info(f"Training pipeline complete. Checkpoint directory: {self.config.checkpoint_dir}")
+        except Exception as e:
+            logger.error("=" * 80)
+            logger.error(f"TRAINING PIPELINE FAILED: {e}", exc_info=True)
+            logger.error("=" * 80)
+            raise
 
 
 def main():

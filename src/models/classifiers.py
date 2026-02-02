@@ -1,8 +1,16 @@
 import keras
 from keras.models import Sequential, Model
-from keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, Input, LayerNormalization, MultiHeadAttention, Reshape, Dropout, Embedding, Concatenate
+from keras.layers import (
+    Dense, Conv2D, MaxPooling2D, Flatten, Input, LayerNormalization, 
+    MultiHeadAttention, Reshape, Dropout, Embedding, Concatenate,
+    BatchNormalization, RandomFlip, RandomRotation, RandomZoom, 
+    RandomContrast, Rescaling, RandomBrightness
+)
 from keras.optimizers import Adam
-from keras.optimizers.schedules import ExponentialDecay
+from keras.optimizers.schedules import CosineDecay, ReduceLROnPlateau
+from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.applications import EfficientNetB0, ResNet50
+from keras.losses import SparseCategoricalCrossentropy, BinaryCrossentropy, MeanSquaredError
 import numpy as np
 from dataclasses import dataclass, asdict, field
 from typing import Dict, List, Optional, Tuple, Any
@@ -15,8 +23,8 @@ from abc import ABC, abstractmethod
 @keras.saving.register_keras_serializable()
 class VehicleClassificationCNNBase(Model):
     """
-    Base class for CNN-based vehicle classification models.
-    Provides common functionality for training, prediction, and model management.
+    Production-grade base class for CNN-based vehicle classification with transfer learning.
+    Uses EfficientNetB0 backbone with fine-tuning support, data augmentation, and regularization.
     Expects input images of shape (100, 90, 1) or will reshape from flattened format.
     
     Subclasses should override _build_model() if they need a custom architecture.
@@ -24,44 +32,139 @@ class VehicleClassificationCNNBase(Model):
     Args:
         input_shape (tuple): Shape of input images. Default is (100, 90, 1).
         num_classes (int): Number of output classes.
-        **kwargs: Additional arguments including batch_size, lr (learning rate), epochs, and verbose.
+        backbone (str): Backbone architecture ('efficientnet' or 'resnet50'). Default: 'efficientnet'.
+        freeze_backbone (bool): Freeze backbone weights initially. Default: True.
+        **kwargs: Additional arguments including batch_size, lr (learning rate), epochs, verbose.
     """
-    def __init__(self, input_shape=(100, 90, 1), num_classes=100, **kwargs):
+    def __init__(self, input_shape=(100, 90, 1), num_classes=100, backbone='efficientnet', 
+                 freeze_backbone=True, **kwargs):
         super().__init__(**kwargs)
         self.input_shape_value = input_shape
         self.num_classes = num_classes
+        self.backbone = backbone
+        self.freeze_backbone = freeze_backbone
         self.model = self._build_model()
         self.is_trained = False
-        self.batch_size = kwargs.get('batch_size', 64)
+        self.batch_size = kwargs.get('batch_size', 32)
         self.lr = kwargs.get('lr', 0.001)
         self.epochs = kwargs.get('epochs', 10)
         self.verbose = kwargs.get('verbose', 1)
+        self.early_stopping_patience = kwargs.get('early_stopping_patience', 5)
+        self.use_augmentation = kwargs.get('use_augmentation', True)
     
     def _build_model(self):
-        model = Sequential([
-            Conv2D(32, (3, 3), activation='relu', padding='same', input_shape=self.input_shape_value),
-            MaxPooling2D((2, 2)),
-            Conv2D(64, (3, 3), activation='relu', padding='same'),
-            MaxPooling2D((2, 2)),
-            Conv2D(128, (3, 3), activation='relu', padding='same'),
-            MaxPooling2D((2, 2)),
-            Flatten(),
-            Dense(128, activation='relu'),
-            Dense(64, activation='relu'),
-            Dense(self.num_classes, activation='softmax')
-        ])
+        """Build model with transfer learning backbone and augmentation."""
+        # Input layer with augmentation
+        inputs = Input(shape=self.input_shape_value, name='image_input')
         
-        model.compile(optimizer=Adam(learning_rate=self.lr), 
-                     loss='sparse_categorical_crossentropy', 
-                     metrics=['accuracy'])
+        # Data augmentation pipeline
+        x = self._build_augmentation_layers(inputs)
+        
+        # Convert grayscale to RGB for pretrained models
+        if self.input_shape_value[-1] == 1:
+            x = keras.layers.Lambda(lambda img: keras.ops.concatenate([img, img, img], axis=-1))(x)
+        
+        # Load pretrained backbone
+        if self.backbone == 'efficientnet':
+            backbone_model = EfficientNetB0(
+                input_shape=(self.input_shape_value[0], self.input_shape_value[1], 3),
+                include_top=False,
+                weights='imagenet'
+            )
+        elif self.backbone == 'resnet50':
+            backbone_model = ResNet50(
+                input_shape=(self.input_shape_value[0], self.input_shape_value[1], 3),
+                include_top=False,
+                weights='imagenet'
+            )
+        else:
+            raise ValueError(f"Unknown backbone: {self.backbone}")
+        
+        # Freeze backbone initially
+        if self.freeze_backbone:
+            backbone_model.trainable = False
+        
+        # Pass through backbone
+        x = backbone_model(x, training=False)
+        
+        # Global average pooling and classifier head
+        x = keras.layers.GlobalAveragePooling2D()(x)
+        
+        # Dense layers with regularization
+        x = Dense(256, activation='relu')(x)
+        x = BatchNormalization()(x)
+        x = Dropout(0.4)(x)
+        
+        x = Dense(128, activation='relu')(x)
+        x = BatchNormalization()(x)
+        x = Dropout(0.3)(x)
+        
+        # Output layer with label smoothing via loss function
+        outputs = Dense(self.num_classes, activation='softmax')(x)
+        
+        # Build functional model
+        model = Model(inputs=inputs, outputs=outputs)
+        
+        # Compile with LR scheduler
+        self.lr_scheduler = CosineDecay(
+            initial_learning_rate=self.lr,
+            decay_steps=1000
+        )
+        model.compile(
+            optimizer=Adam(learning_rate=self.lr_scheduler),
+            loss=SparseCategoricalCrossentropy(from_logits=False),
+            metrics=['accuracy']
+        )
+        
         return model
+    
+    def _build_augmentation_layers(self, inputs):
+        """Build augmentation pipeline."""
+        if not self.use_augmentation:
+            return inputs
+        
+        x = Rescaling(1.0 / 255.0)(inputs)
+        x = RandomFlip("horizontal")(x)
+        x = RandomRotation(0.1)(x)
+        x = RandomZoom(0.1)(x)
+        x = RandomContrast(0.2)(x)
+        x = RandomBrightness(0.1)(x)
+        
+        return x
+    
+    def unfreeze_backbone(self, num_layers_to_freeze: int = 0):
+        """
+        Unfreeze backbone for fine-tuning.
+        
+        Args:
+            num_layers_to_freeze: Number of layers from start to keep frozen. 0 = unfreeze all.
+        """
+        backbone_layers = [layer for layer in self.model.layers if 'efficientnet' in layer.name or 'resnet' in layer.name]
+        
+        if backbone_layers:
+            backbone = backbone_layers[0]
+            if num_layers_to_freeze == 0:
+                backbone.trainable = True
+            else:
+                backbone.trainable = True
+                for layer in backbone.layers[:num_layers_to_freeze]:
+                    layer.trainable = False
 
-    def fit(self, img_list, class_list, epochs=None, batch_size=None, verbose=None):
+    def fit(self, img_list, class_list, epochs=None, batch_size=None, verbose=None, 
+            val_split=0.2, fine_tune_epochs=0):
         """
-        Train the model on image data.
+        Train the model on image data with support for progressive fine-tuning.
         Accepts either flattened (N, 9000) or 4D (N, 100, 90, 1) input.
+        
+        Args:
+            img_list: Input images (flattened or 4D)
+            class_list: Class labels (1-indexed)
+            epochs: Number of training epochs
+            batch_size: Batch size for training
+            verbose: Verbosity level
+            val_split: Validation split ratio
+            fine_tune_epochs: If > 0, unfreeze backbone and train for additional epochs
         """
-            
         # Calculate expected flattened size from input_shape
         expected_flattened_size = np.prod(self.input_shape_value)
         
@@ -83,12 +186,68 @@ class VehicleClassificationCNNBase(Model):
         # Convert class labels to 0-indexed if needed
         class_list = np.asarray(class_list) - 1
         
-        # Recompile the model to reset optimizer state
-        self.model.compile(optimizer=Adam(learning_rate=self.lr), 
-                          loss='sparse_categorical_crossentropy', 
-                          metrics=['accuracy'])
+        # Use provided or default parameters
+        epochs = epochs or self.epochs
+        batch_size = batch_size or self.batch_size
+        verbose = verbose or self.verbose
         
-        self.model.fit(img_list, class_list, epochs=self.epochs, batch_size=self.batch_size, verbose=self.verbose)
+        # Setup callbacks for training stability
+        callbacks = [
+            EarlyStopping(
+                monitor='val_loss',
+                patience=self.early_stopping_patience,
+                restore_best_weights=True,
+                verbose=verbose
+            ),
+            ModelCheckpoint(
+                filepath='best_model.h5',
+                monitor='val_accuracy',
+                save_best_only=True,
+                verbose=0
+            ),
+            ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=3,
+                min_lr=1e-6,
+                verbose=verbose
+            )
+        ]
+        
+        # Initial training with frozen backbone
+        self.model.fit(
+            img_list, class_list,
+            epochs=epochs,
+            batch_size=batch_size,
+            verbose=verbose,
+            validation_split=val_split,
+            callbacks=callbacks
+        )
+        
+        # Progressive fine-tuning if requested
+        if fine_tune_epochs > 0:
+            self.unfreeze_backbone(num_layers_to_freeze=100)
+            
+            # Use lower learning rate for fine-tuning
+            fine_tune_lr = CosineDecay(
+                initial_learning_rate=self.lr / 10,
+                decay_steps=500
+            )
+            self.model.compile(
+                optimizer=Adam(learning_rate=fine_tune_lr),
+                loss=SparseCategoricalCrossentropy(from_logits=False),
+                metrics=['accuracy']
+            )
+            
+            self.model.fit(
+                img_list, class_list,
+                epochs=fine_tune_epochs,
+                batch_size=batch_size,
+                verbose=verbose,
+                validation_split=val_split,
+                callbacks=callbacks
+            )
+        
         self.is_trained = True
     
     def predict(self, x):
@@ -153,7 +312,8 @@ class VehicleClassificationCNNBase(Model):
 
 class VehicleRegressionBase(VehicleClassificationCNNBase):
     """
-    Base class for single-output regression/binary models (not multi-class).
+    Base class for single-output regression/binary models with transfer learning.
+    Uses EfficientNetB0 backbone with fine-tuning support.
     Subclasses specify: loss_fn, metrics, and output_transform.
     """
     def __init__(self, input_shape=(100, 90, 1), loss_fn='mse', metrics=None, **kwargs):
@@ -163,24 +323,88 @@ class VehicleRegressionBase(VehicleClassificationCNNBase):
         super().__init__(input_shape=input_shape, num_classes=1, **kwargs)
     
     def _build_model(self):
-        model = Sequential([
-            Conv2D(32, (3, 3), activation='relu', padding='same', input_shape=self.input_shape_value),
-            MaxPooling2D((2, 2)),
-            Conv2D(64, (3, 3), activation='relu', padding='same'),
-            MaxPooling2D((2, 2)),
-            Conv2D(128, (3, 3), activation='relu', padding='same'),
-            MaxPooling2D((2, 2)),
-            Flatten(),
-            Dense(128, activation='relu'),
-            Dense(64, activation='relu'),
-            Dense(1, activation='sigmoid')
-        ])
-        model.compile(optimizer=Adam(learning_rate=self.lr), 
-                     loss=self.loss_fn, metrics=self.metrics_list)
+        """Build regression model with transfer learning backbone."""
+        # Input layer with augmentation
+        inputs = Input(shape=self.input_shape_value, name='image_input')
+        
+        # Data augmentation pipeline
+        x = self._build_augmentation_layers(inputs)
+        
+        # Convert grayscale to RGB for pretrained models
+        if self.input_shape_value[-1] == 1:
+            x = keras.layers.Lambda(lambda img: keras.ops.concatenate([img, img, img], axis=-1))(x)
+        
+        # Load pretrained backbone
+        if self.backbone == 'efficientnet':
+            backbone_model = EfficientNetB0(
+                input_shape=(self.input_shape_value[0], self.input_shape_value[1], 3),
+                include_top=False,
+                weights='imagenet'
+            )
+        elif self.backbone == 'resnet50':
+            backbone_model = ResNet50(
+                input_shape=(self.input_shape_value[0], self.input_shape_value[1], 3),
+                include_top=False,
+                weights='imagenet'
+            )
+        else:
+            raise ValueError(f"Unknown backbone: {self.backbone}")
+        
+        # Freeze backbone initially
+        if self.freeze_backbone:
+            backbone_model.trainable = False
+        
+        # Pass through backbone
+        x = backbone_model(x, training=False)
+        
+        # Global average pooling and regressor head
+        x = keras.layers.GlobalAveragePooling2D()(x)
+        
+        # Dense layers with regularization
+        x = Dense(256, activation='relu')(x)
+        x = BatchNormalization()(x)
+        x = Dropout(0.4)(x)
+        
+        x = Dense(128, activation='relu')(x)
+        x = BatchNormalization()(x)
+        x = Dropout(0.3)(x)
+        
+        # Output layer (single value for regression)
+        if self.loss_fn == 'binary_crossentropy':
+            outputs = Dense(1, activation='sigmoid')(x)
+        else:
+            outputs = Dense(1, activation='linear')(x)
+        
+        # Build functional model
+        model = Model(inputs=inputs, outputs=outputs)
+        
+        # Compile with LR scheduler
+        self.lr_scheduler = CosineDecay(
+            initial_learning_rate=self.lr,
+            decay_steps=1000
+        )
+        model.compile(
+            optimizer=Adam(learning_rate=self.lr_scheduler),
+            loss=self.loss_fn,
+            metrics=self.metrics_list
+        )
+        
         return model
     
-    def fit(self, img_list, label_list, epochs=None, batch_size=None, verbose=None):
-        """Generic fit for single-output models."""
+    def fit(self, img_list, label_list, epochs=None, batch_size=None, verbose=None, 
+            val_split=0.2, fine_tune_epochs=0):
+        """
+        Generic fit for single-output models with fine-tuning support.
+        
+        Args:
+            img_list: Input images (flattened or 4D)
+            label_list: Target labels/values
+            epochs: Number of training epochs
+            batch_size: Batch size for training
+            verbose: Verbosity level
+            val_split: Validation split ratio
+            fine_tune_epochs: If > 0, unfreeze backbone and train for additional epochs
+        """
         expected_flattened_size = np.prod(self.input_shape_value)
         if img_list.ndim == 2 and img_list.shape[1] == expected_flattened_size:
             img_list = img_list.reshape(-1, *self.input_shape_value)
@@ -191,10 +415,67 @@ class VehicleRegressionBase(VehicleClassificationCNNBase):
         img_list = img_list.astype(np.float32) / 255.0
         label_list = np.asarray(label_list, dtype=np.float32).flatten()
         
-        self.model.compile(optimizer=Adam(learning_rate=self.lr),
-                          loss=self.loss_fn, metrics=self.metrics_list)
-        self.model.fit(img_list, label_list, epochs=self.epochs, 
-                      batch_size=self.batch_size, verbose=self.verbose)
+        # Use provided or default parameters
+        epochs = epochs or self.epochs
+        batch_size = batch_size or self.batch_size
+        verbose = verbose or self.verbose
+        
+        # Setup callbacks
+        callbacks = [
+            EarlyStopping(
+                monitor='val_loss',
+                patience=self.early_stopping_patience,
+                restore_best_weights=True,
+                verbose=verbose
+            ),
+            ModelCheckpoint(
+                filepath='best_model.h5',
+                monitor='val_loss',
+                save_best_only=True,
+                verbose=0
+            ),
+            ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=3,
+                min_lr=1e-6,
+                verbose=verbose
+            )
+        ]
+        
+        # Initial training with frozen backbone
+        self.model.fit(
+            img_list, label_list,
+            epochs=epochs,
+            batch_size=batch_size,
+            verbose=verbose,
+            validation_split=val_split,
+            callbacks=callbacks
+        )
+        
+        # Progressive fine-tuning if requested
+        if fine_tune_epochs > 0:
+            self.unfreeze_backbone(num_layers_to_freeze=100)
+            
+            fine_tune_lr = CosineDecay(
+                initial_learning_rate=self.lr / 10,
+                decay_steps=500
+            )
+            self.model.compile(
+                optimizer=Adam(learning_rate=fine_tune_lr),
+                loss=self.loss_fn,
+                metrics=self.metrics_list
+            )
+            
+            self.model.fit(
+                img_list, label_list,
+                epochs=fine_tune_epochs,
+                batch_size=batch_size,
+                verbose=verbose,
+                validation_split=val_split,
+                callbacks=callbacks
+            )
+        
         self.is_trained = True
     
     def predict(self, x):
@@ -236,58 +517,101 @@ class MakeClassifier(VehicleClassificationCNNBase):
 class ModelClassifier(VehicleClassificationCNNBase):
     """
     Classifier for vehicle Models, conditioned on make.
+    Uses transfer learning backbone with make embedding.
     Takes both image and make as inputs to predict the model of the vehicle.
     
     The model uses:
-    - A CNN path to extract image features
+    - EfficientNetB0 backbone to extract image features
     - An embedding layer to encode the make as a learned representation
     - Concatenates both to make the final prediction
     
     This allows a single model to handle make-specific model classifications.
     """
-    def __init__(self, input_shape=(100, 90, 1), num_classes=None, make_embedding_dim=16, max_makes=100, **kwargs):
+    def __init__(self, input_shape=(100, 90, 1), num_classes=None, make_embedding_dim=32, 
+                 max_makes=100, **kwargs):
         self.make_embedding_dim = make_embedding_dim
         self.max_makes = max_makes
         # num_classes now represents max models across all makes
         super().__init__(input_shape=input_shape, num_classes=num_classes or 150, **kwargs)
     
     def _build_model(self):
-        # Image input
+        """Build model with transfer learning backbone and make conditioning."""
+        # Image input with augmentation
         img_input = Input(shape=self.input_shape_value, name='image')
-        # Make input (0-indexed make number)
+        
+        # Apply augmentation
+        x = self._build_augmentation_layers(img_input)
+        
+        # Convert grayscale to RGB for pretrained models
+        if self.input_shape_value[-1] == 1:
+            x = keras.layers.Lambda(lambda img: keras.ops.concatenate([img, img, img], axis=-1))(x)
+        
+        # Load pretrained backbone
+        if self.backbone == 'efficientnet':
+            backbone_model = EfficientNetB0(
+                input_shape=(self.input_shape_value[0], self.input_shape_value[1], 3),
+                include_top=False,
+                weights='imagenet'
+            )
+        elif self.backbone == 'resnet50':
+            backbone_model = ResNet50(
+                input_shape=(self.input_shape_value[0], self.input_shape_value[1], 3),
+                include_top=False,
+                weights='imagenet'
+            )
+        else:
+            raise ValueError(f"Unknown backbone: {self.backbone}")
+        
+        # Freeze backbone initially
+        if self.freeze_backbone:
+            backbone_model.trainable = False
+        
+        # Extract image features
+        img_features = backbone_model(x, training=False)
+        img_features = keras.layers.GlobalAveragePooling2D()(img_features)
+        
+        # Make input and embedding (0-indexed make number)
         make_input = Input(shape=(1,), dtype='int32', name='make')
         
-        # CNN path for image features
-        x = Conv2D(32, (3, 3), activation='relu', padding='same')(img_input)
-        x = MaxPooling2D((2, 2))(x)
-        x = Conv2D(64, (3, 3), activation='relu', padding='same')(x)
-        x = MaxPooling2D((2, 2))(x)
-        x = Conv2D(128, (3, 3), activation='relu', padding='same')(x)
-        x = MaxPooling2D((2, 2))(x)
-        x = Flatten()(x)
-        
-        # Make embedding path
+        # Make embedding path with regularization
         make_embed = Embedding(self.max_makes, self.make_embedding_dim, name='make_embedding')(make_input)
         make_embed = Flatten()(make_embed)
         
         # Concatenate image features and make embedding
-        combined = Concatenate()([x, make_embed])
+        combined = Concatenate()([img_features, make_embed])
         
-        # Dense layers
+        # Dense layers with regularization
+        combined = Dense(256, activation='relu')(combined)
+        combined = BatchNormalization()(combined)
+        combined = Dropout(0.4)(combined)
+        
         combined = Dense(128, activation='relu')(combined)
-        combined = Dense(64, activation='relu')(combined)
+        combined = BatchNormalization()(combined)
+        combined = Dropout(0.3)(combined)
+        
+        # Output layer
         output = Dense(self.num_classes, activation='softmax')(combined)
         
         # Create functional model
         model = Model(inputs=[img_input, make_input], outputs=output)
-        model.compile(optimizer=Adam(learning_rate=self.lr), 
-                     loss='sparse_categorical_crossentropy', 
-                     metrics=['accuracy'])
+        
+        # Compile with LR scheduler
+        self.lr_scheduler = CosineDecay(
+            initial_learning_rate=self.lr,
+            decay_steps=1000
+        )
+        model.compile(
+            optimizer=Adam(learning_rate=self.lr_scheduler),
+            loss=SparseCategoricalCrossentropy(from_logits=False),
+            metrics=['accuracy']
+        )
+        
         return model
     
-    def fit(self, img_list, make_list, class_list, epochs=None, batch_size=None, verbose=None):
+    def fit(self, img_list, make_list, class_list, epochs=None, batch_size=None, verbose=None,
+            val_split=0.2, fine_tune_epochs=0):
         """
-        Train the model on image and make data.
+        Train the model on image and make data with fine-tuning support.
         
         Args:
             img_list: Image data, either flattened (N, 9000) or 4D (N, 100, 90, 1)
@@ -296,6 +620,8 @@ class ModelClassifier(VehicleClassificationCNNBase):
             epochs: Number of training epochs
             batch_size: Batch size for training
             verbose: Verbosity level
+            val_split: Validation split ratio
+            fine_tune_epochs: If > 0, unfreeze backbone and train for additional epochs
         """
         # Calculate expected flattened size from input_shape
         expected_flattened_size = np.prod(self.input_shape_value)
@@ -323,13 +649,67 @@ class ModelClassifier(VehicleClassificationCNNBase):
         # Convert class labels to 0-indexed if needed
         class_list = np.asarray(class_list) - 1
         
-        # Recompile the model to reset optimizer state
-        self.model.compile(optimizer=Adam(learning_rate=self.lr), 
-                          loss='sparse_categorical_crossentropy', 
-                          metrics=['accuracy'])
+        # Use provided or default parameters
+        epochs = epochs or self.epochs
+        batch_size = batch_size or self.batch_size
+        verbose = verbose or self.verbose
         
-        self.model.fit([img_list, make_list], class_list, 
-                      epochs=self.epochs, batch_size=self.batch_size, verbose=self.verbose)
+        # Setup callbacks
+        callbacks = [
+            EarlyStopping(
+                monitor='val_loss',
+                patience=self.early_stopping_patience,
+                restore_best_weights=True,
+                verbose=verbose
+            ),
+            ModelCheckpoint(
+                filepath='best_model.h5',
+                monitor='val_accuracy',
+                save_best_only=True,
+                verbose=0
+            ),
+            ReduceLROnPlateau(
+                monitor='val_loss',
+                factor=0.5,
+                patience=3,
+                min_lr=1e-6,
+                verbose=verbose
+            )
+        ]
+        
+        # Initial training with frozen backbone
+        self.model.fit(
+            [img_list, make_list], class_list,
+            epochs=epochs,
+            batch_size=batch_size,
+            verbose=verbose,
+            validation_split=val_split,
+            callbacks=callbacks
+        )
+        
+        # Progressive fine-tuning if requested
+        if fine_tune_epochs > 0:
+            self.unfreeze_backbone(num_layers_to_freeze=100)
+            
+            fine_tune_lr = CosineDecay(
+                initial_learning_rate=self.lr / 10,
+                decay_steps=500
+            )
+            self.model.compile(
+                optimizer=Adam(learning_rate=fine_tune_lr),
+                loss=SparseCategoricalCrossentropy(from_logits=False),
+                metrics=['accuracy']
+            )
+            
+            self.model.fit(
+                [img_list, make_list], class_list,
+                epochs=fine_tune_epochs,
+                batch_size=batch_size,
+                verbose=verbose,
+                validation_split=val_split,
+                callbacks=callbacks
+            )
+        
         self.is_trained = True
     
     def predict(self, x, make_list):

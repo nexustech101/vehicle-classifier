@@ -1,24 +1,28 @@
 # Vehicle Classifier: Enterprise-Grade Multi-Dimensional Classification
 
-![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
-![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange)
-![Flask](https://img.shields.io/badge/Flask-2.0%2B-black)
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.104%2B-green)
+![TensorFlow](https://img.shields.io/badge/TensorFlow-2.12%2B-orange)
+![Redis](https://img.shields.io/badge/Redis-7.0%2B-red)
+![Docker](https://img.shields.io/badge/Docker-Compose-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 ![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
 
 ## Overview
 
-Production-ready deep learning system for **9-dimensional vehicle classification** from 100×90 greyscale images. Includes orchestrated multi-model pipeline, Flask REST API (7 endpoints), intelligent caching, batch processing, and professional report generation.
+Production-ready deep learning system for **9-dimensional vehicle classification** from 100×90 greyscale images. Built with FastAPI, Redis caching, Docker containerization, and comprehensive logging for enterprise deployment.
 
 **Key Features:**
-- 9 specialized classifiers (Make, Model, Type, Color, Decade, Country, Condition, Stock/Modified, Functional Utility)
-- Flask REST API with 7 endpoints (classify, batch, report, metadata, health, docs)
-- 8 design patterns (Singleton, Factory, Strategy, Pipeline, Data Mapper, Builder, Dependency Injection, Repository)
-- Confidence metrics with entropy-based uncertainty quantification
-- Single & batch processing with JSON/HTML report generation
-- Model caching via Singleton pattern (thread-safe)
-- 100% type hints, SOLID principles, comprehensive error handling
-- 50-100ms inference per image, intelligent registry
+- 🚀 **FastAPI** - Async REST API with auto-generated OpenAPI docs
+- 🎯 **9 Specialized Classifiers** - Make, Model, Type, Color, Decade, Country, Condition, Stock/Modified, Functional Utility  
+- 💾 **Redis Caching** - Distributed caching with regional usage tracking
+- 🐳 **Docker Compose** - Production-ready containerization with auto-healthchecks
+- 📊 **Structured Logging** - JSON-formatted logs for observability (training, evaluation, API)
+- ⚡ **Transfer Learning** - EfficientNetB0/ResNet50 backbones with regularization
+- 🔧 **8 Design Patterns** - Singleton, Factory, Strategy, Pipeline, Data Mapper, Builder, DI, Repository
+- 📈 **Professional Reports** - JSON/HTML classification reports with confidence metrics
+- 🎨 **Batch Processing** - Multi-file classification with summary statistics
+- 🏥 **Health Checks** - Liveness/readiness probes for Kubernetes-ready deployments
 
 ---
 
@@ -26,46 +30,57 @@ Production-ready deep learning system for **9-dimensional vehicle classification
 
 1. [Quick Start](#quick-start)
 2. [Installation](#installation)
-3. [REST API](#rest-api)
-4. [Python API](#python-api)
-5. [Architecture](#architecture)
-6. [Classification Dimensions](#classification-dimensions)
-7. [Advanced Usage](#advanced-usage)
+3. [Docker Deployment](#docker-deployment)
+4. [REST API](#rest-api)
+5. [Python API](#python-api)
+6. [Architecture](#architecture)
+7. [Logging & Monitoring](#logging--monitoring)
 8. [Performance](#performance)
-9. [Deployment](#deployment)
-10. [Troubleshooting](#troubleshooting)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
 ## Quick Start
 
-### 30-Second Setup
+### FastAPI Server (Development)
 
 ```bash
 # Install dependencies
 pip install -r requirements.txt
 
-# Start API server
-python app.py
+# Start API server (FastAPI)
+uvicorn src.api.app:app --reload --host 0.0.0.0 --port 8000
 
-# View API documentation
-# Open: http://localhost:5000/api/docs
+# Navigate to http://localhost:8000/docs for interactive API documentation
+```
+
+### Docker Compose (Production)
+
+```bash
+# Build and start containerized stack (FastAPI + Redis)
+docker-compose up -d
+
+# View logs
+docker-compose logs -f app
+
+# Stop services
+docker-compose down
 ```
 
 ### First Classification (Python)
 
 ```python
-from prediction_api import VehicleClassificationAPI
+from src.api.service import VehicleClassificationAPI
 
 api = VehicleClassificationAPI()
 result = api.classify_image("vehicle.jpg")
 print(result['data']['predictions'])
 ```
 
-### First Classification (cURL)
+### First Classification (FastAPI)
 
 ```bash
-curl -X POST -F "file=@vehicle.jpg" http://localhost:5000/api/vehicle/classify
+curl -X POST -F "file=@vehicle.jpg" http://localhost:8000/api/vehicle/classify
 ```
 
 ---
@@ -73,10 +88,10 @@ curl -X POST -F "file=@vehicle.jpg" http://localhost:5000/api/vehicle/classify
 ## Installation
 
 ### Prerequisites
-- Python 3.8+
+- Python 3.10+
 - pip or conda
 - 4 GB RAM (8 GB recommended)
-- 2 GB GPU VRAM (optional, for faster inference)
+- Docker & Docker Compose (optional, for containerized deployment)
 
 ### Setup
 
@@ -88,9 +103,54 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Verify
-python -c "from prediction_api import VehicleClassificationAPI; print('✓ Ready')"
+# Verify installation
+python -c "from src.api.service import VehicleClassificationAPI; print('✓ Ready')"
 ```
+
+---
+
+## Docker Deployment
+
+### Build Custom Image
+
+```bash
+# Build Docker image
+docker build -t vehicle-classifier:latest .
+
+# Run container
+docker run -p 8000:8000 -v $(pwd)/uploads:/app/uploads vehicle-classifier:latest
+```
+
+### Docker Compose Stack
+
+**Complete production stack with FastAPI + Redis:**
+
+```bash
+# Start services
+docker-compose up -d
+
+# Verify services running
+docker-compose ps
+
+# View app logs
+docker-compose logs -f app
+
+# View Redis logs
+docker-compose logs -f redis
+
+# Stop all services
+docker-compose down
+
+# Remove volumes (clean slate)
+docker-compose down -v
+```
+
+**Environment Variables:**
+
+Set in `docker-compose.yml`:
+- `REDIS_HOST` - Redis host (default: redis)
+- `REDIS_PORT` - Redis port (default: 6379)
+- `LOG_LEVEL` - Logging level (default: INFO)
 
 ---
 
@@ -100,31 +160,31 @@ python -c "from prediction_api import VehicleClassificationAPI; print('✓ Ready
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
-| GET | `/health` | Service health |
-| GET | `/api/models/metadata` | Model info & supported attributes |
+| GET | `/health` | Service health & status |
+| GET | `/api/models/metadata` | Model info & attributes |
 | POST | `/api/vehicle/classify` | Single image classification |
 | POST | `/api/vehicle/classify-batch` | Batch processing |
-| POST | `/api/vehicle/report` | Generate report (JSON/HTML) |
-| GET | `/api/vehicle/report/<id>` | Retrieve cached report |
-| GET | `/api/docs` | Interactive API documentation |
+| POST | `/api/vehicle/report` | Generate JSON/HTML report |
+| GET | `/api/vehicle/report/{id}` | Retrieve cached report |
+| GET | `/docs` | Interactive OpenAPI documentation |
 
 ### Examples
 
 **Single Classification:**
 ```bash
-curl -X POST -F "file=@vehicle.jpg" http://localhost:5000/api/vehicle/classify
+curl -X POST -F "file=@vehicle.jpg" http://localhost:8000/api/vehicle/classify
 ```
 
 **Batch Processing:**
 ```bash
 curl -X POST -F "files=@car1.jpg" -F "files=@car2.jpg" \
-  http://localhost:5000/api/vehicle/classify-batch
+  http://localhost:8000/api/vehicle/classify-batch
 ```
 
-**Generate Report:**
+**Generate HTML Report:**
 ```bash
 curl -X POST -F "file=@vehicle.jpg" -F "format=html" \
-  http://localhost:5000/api/vehicle/report > report.html
+  http://localhost:8000/api/vehicle/report > report.html
 ```
 
 **Response Example:**
@@ -156,7 +216,7 @@ curl -X POST -F "file=@vehicle.jpg" -F "format=html" \
 ### Single Image
 
 ```python
-from prediction_api import VehicleClassificationAPI
+from src.api import VehicleClassificationAPI
 
 api = VehicleClassificationAPI()
 result = api.classify_image("vehicle.jpg")
@@ -179,8 +239,7 @@ print(f"Success rate: {results['summary']['successful']}/{results['summary']['to
 ```python
 # JSON report
 json_report = api.generate_report("vehicle.jpg", vehicle_id="VEH_001", format='json')
-with open("report.json", "w") as f:
-    f.write(json_report['data'])
+report_data = json_report['data']
 
 # HTML report
 html_report = api.generate_report("vehicle.jpg", format='html')
@@ -188,11 +247,112 @@ with open("report.html", "w") as f:
     f.write(html_report['data'])
 ```
 
+---
+
+## Logging & Monitoring
+
+### Log Files
+
+Structured JSON logs are written to `./logs/`:
+
+| File | Purpose |
+|------|---------|
+| `api.log` | REST API requests, responses, timings |
+| `training.log` | Model training progress & metrics |
+| `evaluation.log` | Model evaluation results |
+
+### View Logs
+
+```bash
+# API logs (real-time)
+tail -f logs/api.log
+
+# Training logs
+tail -f logs/training.log
+
+# Parse JSON logs (pretty-print)
+cat logs/api.log | jq '.' | less
+```
+
+### Log Structure
+
+All logs are in structured JSON format:
+```json
+{
+  "timestamp": "2024-01-15T10:30:45.123456",
+  "level": "INFO",
+  "logger": "api",
+  "module": "app",
+  "function": "classify_single",
+  "line": 145,
+  "message": "Classification successful for vehicle.jpg (45.23ms)"
+}
+```
+
+### Monitoring (Docker)
+
+```bash
+# View container resource usage
+docker stats vehicle-classifier-api
+
+# Check Redis connection
+docker-compose exec redis redis-cli ping
+
+# Monitor API health
+docker-compose exec app curl http://localhost:8000/health
+```
+
+---
+
+## Architecture
+
+### Directory Structure
+
+```
+vehicle-classifier/
+├── src/
+│   ├── api/
+│   │   ├── app.py                    # FastAPI application
+│   │   ├── service.py                # High-level API service
+│   │   ├── cache.py                  # Redis caching utilities
+│   │   └── logging_config.py         # Structured logging setup
+│   ├── models/
+│   │   ├── classifiers.py            # 9 ML classifiers (transfer learning)
+│   │   └── registry.py               # Model registry & singleton
+│   ├── training/
+│   │   └── train.py                  # Training pipeline orchestrator
+│   └── preprocessing/
+│       ├── processor.py              # Image preprocessing
+│       └── utils.py                  # Utility functions
+├── docker-compose.yml                # Container orchestration
+├── Dockerfile                        # FastAPI container image
+├── requirements.txt                  # Python dependencies
+└── README.md                         # This file
+```
+
+### Data Flow
+
+```
+Image Upload → FastAPI → Load Image → Predict (9 Models)
+                                         ↓
+                               Aggregate Results
+                                    ↓
+                            Cache (Redis) + Response
+```
+
+### Key Components
+
+- **FastAPI** - Async REST API with auto-generated documentation
+- **Redis** - Distributed caching with TTL support
+- **VehiclePredictionPipeline** - Multi-model orchestration
+- **ModelRegistry** - Singleton pattern for model management
+- **DataAugmentation** - In-model data augmentation during training
+
 ### Direct Pipeline Usage
 
 ```python
 import numpy as np
-from models import VehiclePredictionPipeline, MakeClassifier, TypeClassifier
+from src.models import VehiclePredictionPipeline, MakeClassifier, TypeClassifier
 
 pipeline = VehiclePredictionPipeline()
 models = {
@@ -255,17 +415,28 @@ OUTPUT (VehicleClassificationResult)
 
 ```
 vehicle-classifier/
-├── models.py                      # ML pipeline, classifiers, utilities
-├── prediction_api.py              # High-level API
-├── app.py                         # Flask REST server
-├── preprocessing.py               # Image processing
-├── train.py                       # Training pipeline
+├── src/
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── classifiers.py         # Transfer learning models & inference
+│   ├── training/
+│   │   ├── __init__.py
+│   │   └── train.py               # Training pipeline orchestrator
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── app.py                 # Flask REST server
+│   │   └── service.py             # VehicleClassificationAPI
+│   ├── preprocessing/
+│   │   ├── __init__.py
+│   │   ├── processor.py           # Image preprocessing
+│   │   └── utils.py               # Utility functions
+│   └── __init__.py
+├── main.py                        # Application entry point
+├── checkpoints/                   # Model weights
+├── logs/                          # Training logs
 ├── api_documentation.html         # Interactive docs
 ├── README.md                      # This file
-├── IMPLEMENTATION_SUMMARY.md      # What was built
-├── requirements.txt               # Dependencies
-├── checkpoints/                   # Model weights
-└── uploads/                       # Uploaded images
+└── requirements.txt               # Dependencies
 ```
 
 ---
@@ -313,7 +484,7 @@ for name, pred in predictions.items():
 ### Model Registry & Caching
 
 ```python
-from models import ModelRegistry
+from src.models import ModelRegistry
 
 registry = ModelRegistry()
 cached_models = registry.get_cached_model_names()
@@ -357,7 +528,7 @@ gunicorn -w 4 -b 0.0.0.0:5000 app:app
 ### Models Not Loading
 
 ```python
-from models import ModelRegistry
+from src.models import ModelRegistry
 registry = ModelRegistry()
 print(registry.get_cached_model_names())
 ```

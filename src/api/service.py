@@ -2,7 +2,7 @@
 Prediction API - Frontend-ready vehicle classification service.
 
 This module provides a clean API interface for using the ML pipeline in web/mobile applications.
-Demonstrates how to integrate the VehiclePredictionPipeline with actual model instances.
+Includes comprehensive logging for API operations and cache management.
 
 Example usage for API endpoints:
     - POST /api/vehicle/classify - Single image classification
@@ -18,7 +18,7 @@ from PIL import Image
 import json
 from datetime import datetime
 
-from models import (
+from src.models.classifiers import (
     VehiclePredictionPipeline,
     VehicleClassificationResult,
     VehicleClassificationReport,
@@ -29,6 +29,10 @@ from models import (
     StockOrModedClassifier,
     FunctionalUtilityClassifier,
 )
+from src.api.logging_config import setup_api_logger
+
+# Setup logging
+logger = setup_api_logger()
 
 
 class VehicleClassificationAPI:
@@ -41,6 +45,7 @@ class VehicleClassificationAPI:
         Args:
             model_checkpoint_dir: Directory containing saved model checkpoints
         """
+        logger.info(f"Initializing VehicleClassificationAPI")
         self.pipeline = VehiclePredictionPipeline()
         self.model_checkpoint_dir = Path(model_checkpoint_dir)
         self._reports_cache: Dict[str, VehicleClassificationReport] = {}
@@ -49,6 +54,7 @@ class VehicleClassificationAPI:
     def _initialize_models(self):
         """Load trained models into pipeline."""
         try:
+            logger.info("Loading trained models...")
             model_instances = {
                 'make': MakeClassifier(),
                 'type': TypeClassifier(),
@@ -58,8 +64,9 @@ class VehicleClassificationAPI:
                 'functional_utility': FunctionalUtilityClassifier(),
             }
             self.pipeline.initialize_models(model_instances)
+            logger.info("All models loaded successfully")
         except Exception as e:
-            print(f"Warning: Could not load all models: {e}")
+            logger.warning(f"Warning: Could not load all models: {e}")
     
     def classify_image(self, image_path: str) -> Dict[str, Any]:
         """
@@ -72,6 +79,8 @@ class VehicleClassificationAPI:
             Dictionary with predictions and confidence metrics
         """
         try:
+            logger.debug(f"Classifying image: {image_path}")
+            
             # Load and preprocess image
             image = Image.open(image_path).convert('L')
             image_array = np.array(image).astype(np.float32) / 255.0
@@ -79,11 +88,14 @@ class VehicleClassificationAPI:
             # Run prediction
             result = self.pipeline.predict_single(image_array, image_path)
             
+            logger.info(f"Successfully classified {image_path}")
+            
             return {
                 'status': 'success',
                 'data': result.to_dict()
             }
         except Exception as e:
+            logger.error(f"Classification failed for {image_path}: {e}")
             return {
                 'status': 'error',
                 'message': str(e)
@@ -99,6 +111,7 @@ class VehicleClassificationAPI:
         Returns:
             Dictionary with list of results and summary statistics
         """
+        logger.info(f"Starting batch classification with {len(image_paths)} images")
         results = []
         successful = 0
         failed = 0
@@ -115,11 +128,14 @@ class VehicleClassificationAPI:
                     failed += 1
             except Exception as e:
                 failed += 1
+                logger.warning(f"Batch classification failed for {image_path}: {e}")
                 results.append({
                     'status': 'error',
                     'image': image_path,
                     'message': str(e)
                 })
+        
+        logger.info(f"Batch complete: {successful}/{len(image_paths)} successful")
         
         return {
             'status': 'success',
@@ -146,6 +162,8 @@ class VehicleClassificationAPI:
             Report in requested format
         """
         try:
+            logger.info(f"Generating {format} report for {image_path}")
+            
             # Load image
             image = Image.open(image_path).convert('L')
             image_array = np.array(image).astype(np.float32) / 255.0
@@ -155,6 +173,7 @@ class VehicleClassificationAPI:
             
             # Cache report
             self._reports_cache[report.vehicle_id] = report
+            logger.info(f"Report generated and cached: {report.vehicle_id}")
             
             if format == 'json':
                 return {
@@ -176,12 +195,14 @@ class VehicleClassificationAPI:
                     'data': report.to_dict()
                 }
             else:
+                logger.warning(f"Unsupported report format: {format}")
                 return {
                     'status': 'error',
                     'message': f"Unsupported format: {format}"
                 }
         
         except Exception as e:
+            logger.error(f"Report generation failed for {image_path}: {e}")
             return {
                 'status': 'error',
                 'message': str(e)
@@ -199,11 +220,13 @@ class VehicleClassificationAPI:
         """
         if vehicle_id in self._reports_cache:
             report = self._reports_cache[vehicle_id]
+            logger.debug(f"Report retrieved from cache: {vehicle_id}")
             return {
                 'status': 'success',
                 'data': report.to_dict()
             }
         else:
+            logger.warning(f"Report not found: {vehicle_id}")
             return {
                 'status': 'error',
                 'message': f"Report not found: {vehicle_id}"
@@ -218,12 +241,14 @@ class VehicleClassificationAPI:
         """
         cached_models = self.pipeline.model_registry.get_cached_model_names()
         
+        logger.info("Model metadata requested")
+        
         return {
             'status': 'success',
             'data': {
                 'cached_models': cached_models,
                 'pipeline_initialized': self.pipeline._initialized,
-                'version': '1.0',
+                'version': '2.0',
                 'supported_attributes': [
                     'make', 'type', 'color', 'condition',
                     'stock_or_moded', 'functional_utility'
