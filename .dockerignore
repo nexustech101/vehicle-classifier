@@ -13,6 +13,8 @@ ENV/
 build/
 develop-eggs/
 dist/
+docs/
+doc/
 downloads/
 eggs/
 .eggs/
