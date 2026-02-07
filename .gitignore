@@ -89,6 +89,7 @@ verify*.py
 *.cmd
 auto_ml.py
 test*.py
+check*.py
 
 # Spyder project settings
 .spyderproject
