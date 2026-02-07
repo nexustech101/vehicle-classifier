@@ -4,8 +4,8 @@ import pytest
 import os
 from pathlib import Path
 from fastapi.testclient import TestClient
-from src.api.app import app
-from src.api.auth import create_access_token
+from src.api.app import app, db
+from src.api.auth import create_access_token, hash_password
 from src.core.database import Database
 
 
@@ -13,11 +13,30 @@ from src.core.database import Database
 def test_db():
     """Create test database."""
     db_path = Path("test_reports.db")
-    db = Database(db_path)
-    yield db
+    test_database = Database(db_path)
+    yield test_database
     # Cleanup
     if db_path.exists():
         db_path.unlink()
+
+
+@pytest.fixture(autouse=True)
+def setup_test_users():
+    """Ensure test users exist in the app database."""
+    if not db.user_exists("test_user"):
+        db.create_user(
+            username="test_user",
+            email="test@test.com",
+            password=hash_password("testpass"),
+            role="user"
+        )
+    if not db.user_exists("admin_user"):
+        db.create_user(
+            username="admin_user",
+            email="admin_test@test.com",
+            password=hash_password("adminpass"),
+            role="admin"
+        )
 
 
 @pytest.fixture
@@ -29,7 +48,7 @@ def client():
 @pytest.fixture
 def valid_token():
     """Create valid test JWT token."""
-    return create_access_token(data={"sub": "test_user"})
+    return create_access_token(data={"sub": "test_user", "role": "user"})
 
 
 @pytest.fixture

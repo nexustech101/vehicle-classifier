@@ -279,19 +279,39 @@ cat logs/api.log | jq '.' | less   # Pretty-print
 ```
 vehicle-classifier/
 ├── src/
-│   ├── api/                        # FastAPI app, auth, service, cache, logging
-│   ├── core/                       # Database, Redis, security, errors, monitoring
-│   ├── models/                     # 9 transfer learning classifiers
-│   ├── training/                   # Training pipeline
-│   └── preprocessing/              # Image preprocessing & utils
-├── tests/                          # pytest suite (API, auth, security, monitoring)
+│   ├── api/
+│   │   ├── app.py                  # FastAPI application (13 endpoints)
+│   │   ├── auth.py                 # JWT auth & user verification
+│   │   ├── logging_config.py       # Structured logging setup
+│   │   └── service.py              # VehicleClassificationAPI
+│   ├── core/
+│   │   ├── database.py             # SQLite + users table + CRUD
+│   │   ├── errors.py               # Custom exceptions
+│   │   ├── monitoring.py           # Metrics & request logging
+│   │   ├── redis_client.py         # Redis connection manager
+│   │   └── security.py             # Input validation & security
+│   ├── models/
+│   │   └── classifiers.py          # 9 transfer learning classifiers
+│   ├── preprocessing/
+│   │   ├── processor.py            # Image preprocessing
+│   │   └── utils.py                # Utility functions
+│   └── training/
+│       └── train.py                # Training pipeline orchestrator
+├── tests/
+│   ├── conftest.py                 # pytest fixtures
+│   ├── test_api.py                 # API endpoint tests
+│   ├── test_auth.py                # Authentication tests
+│   ├── test_monitoring.py          # Monitoring tests
+│   └── test_security.py            # Security tests
 ├── checkpoints/                    # Trained model weights
 ├── db/                             # SQLite database
 ├── logs/                           # Application logs
 ├── uploads/                        # Temporary image uploads
+├── .dockerignore
+├── .gitignore
 ├── docker-compose.yml
 ├── Dockerfile
-├── main.py
+├── main.py                         # Application entry point
 ├── requirements.txt
 └── README.md
 ```
@@ -302,7 +322,7 @@ vehicle-classifier/
 
 - **Models not loading** — `ModelRegistry().get_cached_model_names()` to inspect, `.clear_cache()` to reset
 - **Out of memory** — `ModelRegistry().clear_cache()`
-- **API not responding** — `curl http://localhost:8000/health`
+- **API not responding** — `curl http://localhost:8000/api/v2/health`
 - **Token expired** — re-authenticate via `POST /api/v2/auth/token`
 - **Permission denied** — verify you're using an admin token for admin endpoints
 

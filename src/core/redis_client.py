@@ -4,13 +4,12 @@ import logging
 import time
 import os
 import redis
-from redis.connection import ConnectionPool
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 
 logger = logging.getLogger(__name__)
 
 
-class RedisClient:
+class ResilientRedisClient:
     """Redis client with automatic reconnection and health checks."""
     
     def __init__(self, 
@@ -94,6 +93,10 @@ class RedisClient:
         except (redis.ConnectionError, redis.TimeoutError):
             self.connected = False
             return False
+    
+    def ping(self) -> bool:
+        """Ping Redis server. Alias for health_check."""
+        return self.health_check()
     
     def get(self, key: str) -> Optional[Any]:
         """Get value from Redis with fallback."""
@@ -193,12 +196,12 @@ class RedisClient:
 
 
 # Global instance
-_redis_instance: Optional[RedisClient] = None
+_redis_instance: Optional[ResilientRedisClient] = None
 
 
-def get_redis_client() -> RedisClient:
+def get_redis_client() -> ResilientRedisClient:
     """Get or create global Redis client instance."""
     global _redis_instance
     if _redis_instance is None:
-        _redis_instance = RedisClient()
+        _redis_instance = ResilientRedisClient()
     return _redis_instance

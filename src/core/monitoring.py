@@ -175,17 +175,14 @@ class RequestLogger:
     def __init__(self):
         """Initialize request logger."""
         self.collector = MetricsCollector()
-        self.active_requests = 0
     
     def log_request_start(self, method: str, path: str):
         """Log request start."""
-        self.active_requests += 1
-        self.collector.set_active_requests(self.active_requests)
+        ACTIVE_REQUESTS.inc()
     
     def log_request_end(self, method: str, path: str, status_code: int, duration_ms: float):
         """Log request completion."""
-        self.active_requests -= 1
-        self.collector.set_active_requests(self.active_requests)
+        ACTIVE_REQUESTS.dec()
         self.collector.record_request(method, path, status_code)
         self.collector.record_latency(path, duration_ms / 1000)
         

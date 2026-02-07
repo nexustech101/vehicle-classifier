@@ -15,7 +15,6 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 import numpy as np
 from PIL import Image
-import json
 from datetime import datetime
 
 from src.models.classifiers import (
@@ -25,6 +24,8 @@ from src.models.classifiers import (
     MakeClassifier,
     TypeClassifier,
     ColorClassifier,
+    DecadeClassifier,
+    CountryClassifier,
     ConditionClassifier,
     StockOrModedClassifier,
     FunctionalUtilityClassifier,
@@ -59,6 +60,8 @@ class VehicleClassificationAPI:
                 'make': MakeClassifier(),
                 'type': TypeClassifier(),
                 'color': ColorClassifier(),
+                'decade': DecadeClassifier(),
+                'country': CountryClassifier(),
                 'condition': ConditionClassifier(),
                 'stock_or_moded': StockOrModedClassifier(),
                 'functional_utility': FunctionalUtilityClassifier(),
@@ -250,8 +253,8 @@ class VehicleClassificationAPI:
                 'pipeline_initialized': self.pipeline._initialized,
                 'version': '2.0',
                 'supported_attributes': [
-                    'make', 'type', 'color', 'condition',
-                    'stock_or_moded', 'functional_utility'
+                    'make', 'type', 'color', 'decade', 'country',
+                    'condition', 'stock_or_moded', 'functional_utility'
                 ],
                 'max_image_size': (100, 90),
                 'supported_formats': ['JPEG', 'PNG', 'BMP'],
@@ -272,82 +275,3 @@ class VehicleClassificationAPI:
             'models_ready': self.pipeline._initialized,
             'cached_reports': len(self._reports_cache)
         }
-
-
-# ==================== EXAMPLE USAGE ====================
-
-def example_single_prediction():
-    """Example: Classify a single vehicle image."""
-    api = VehicleClassificationAPI()
-    
-    # Classify image
-    result = api.classify_image("path/to/vehicle.jpg")
-    print("Classification Result:")
-    print(json.dumps(result, indent=2))
-
-
-def example_batch_processing():
-    """Example: Process multiple vehicle images."""
-    api = VehicleClassificationAPI()
-    
-    image_paths = [
-        "path/to/vehicle1.jpg",
-        "path/to/vehicle2.jpg",
-        "path/to/vehicle3.jpg",
-    ]
-    
-    results = api.classify_batch(image_paths)
-    print("Batch Results:")
-    print(json.dumps(results, indent=2))
-
-
-def example_report_generation():
-    """Example: Generate professional report."""
-    api = VehicleClassificationAPI()
-    
-    # Generate report in different formats
-    json_report = api.generate_report("path/to/vehicle.jpg", format='json')
-    print("JSON Report:")
-    print(json.dumps(json_report, indent=2))
-    
-    # Generate HTML report
-    html_report = api.generate_report("path/to/vehicle.jpg", format='html')
-    with open("vehicle_report.html", "w") as f:
-        f.write(html_report['data'])
-    print("HTML report saved to vehicle_report.html")
-
-
-def example_api_endpoints():
-    """Example: API endpoint usage patterns."""
-    api = VehicleClassificationAPI()
-    
-    # GET /api/health
-    health = api.health_check()
-    print("Health Status:", health)
-    
-    # GET /api/models/metadata
-    metadata = api.get_model_metadata()
-    print("Model Metadata:", json.dumps(metadata, indent=2))
-    
-    # POST /api/vehicle/classify
-    classification = api.classify_image("path/to/vehicle.jpg")
-    print("Classification:", json.dumps(classification, indent=2))
-    
-    # POST /api/vehicle/report
-    report = api.generate_report("path/to/vehicle.jpg", format='dict')
-    vehicle_id = report.get('vehicle_id')
-    
-    # GET /api/vehicle/report/{vehicle_id}
-    retrieved_report = api.get_report(vehicle_id)
-    print("Retrieved Report:", json.dumps(retrieved_report, indent=2))
-
-
-if __name__ == "__main__":
-    # Run examples (uncomment to test)
-    # example_single_prediction()
-    # example_batch_processing()
-    # example_report_generation()
-    # example_api_endpoints()
-    
-    print("Prediction API module loaded successfully.")
-    print("Use VehicleClassificationAPI class to create an API service instance.")

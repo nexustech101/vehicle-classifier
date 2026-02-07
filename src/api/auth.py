@@ -16,10 +16,24 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 
 # Password hashing
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v2/auth/token")
 
-# Database instance
-db = Database()
+# Shared database instance (lazy-loaded singleton)
+_db: Optional[Database] = None
+
+
+def get_db() -> Database:
+    """Get the shared database instance."""
+    global _db
+    if _db is None:
+        _db = Database()
+    return _db
+
+
+def set_db(db: Database) -> None:
+    """Set the shared database instance (for dependency injection)."""
+    global _db
+    _db = db
 
 
 def hash_password(password: str) -> str:
@@ -72,7 +86,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)) -> Dict[str, Any]:
             raise HTTPException(status_code=401, detail="Invalid token")
         
         # Verify user still exists and is active
-        user = db.get_user_by_username(username)
+        user = get_db().get_user_by_username(username)
         if not user or not user.get("is_active"):
             raise HTTPException(status_code=401, detail="User not found or inactive")
         
@@ -97,7 +111,7 @@ def require_role(required_role: str):
 
 def authenticate_user(username: str, password: str) -> Optional[Dict[str, Any]]:
     """Authenticate user with username and password from database."""
-    user = db.get_user_by_username(username)
+    user = get_db().get_user_by_username(username)
     if not user:
         return None
     

@@ -402,3 +402,7 @@ class Database:
         except Exception as e:
             logger.error(f"Database health check failed: {e}")
             return False
+    
+    def close(self):
+        """Close the database (no-op for SQLite per-call connections)."""
+        logger.info(f"Database connection to {self.db_path} closed")

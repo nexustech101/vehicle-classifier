@@ -1,21 +1,24 @@
-from typing import List, Dict, Optional
+"""Legacy preprocessing utilities for image manipulation."""
+
+from typing import List
 import os
-import pickle
 import numpy as np
+from PIL import Image
+
 
 def image_to_nparray(img_path: str) -> np.ndarray:
     """
     Load an image from the specified path and convert it to a numpy array.
+    
     Args:
-        img_path (str): Path to the image file.
+        img_path: Path to the image file.
+    
     Returns:
-        np.ndarray: Image as a numpy array.
-    from keras.preprocessing.image import load_img, img_to_array
+        Image as a numpy array with shape (H, W, 1).
     """
-    from keras.preprocessing.image import load_img, img_to_array
-    img = load_img(img_path, color_mode='grayscale')
-    img_array = img_to_array(img)
-    return img_array
+    img = Image.open(img_path).convert('L')
+    img_array = np.array(img, dtype=np.float32)
+    return np.expand_dims(img_array, axis=-1)
 
 
 def flatten_image(img: np.ndarray) -> np.ndarray:
@@ -48,39 +51,65 @@ def crop_center(img: np.ndarray, cropx: int, cropy: int) -> np.ndarray:
 def resize_image(img: np.ndarray, size: tuple) -> np.ndarray:
     """
     Resize an image to the specified size.
+    
     Args:
-        img (np.ndarray): Input image array.
-        size (tuple): Desired size (width, height).
+        img: Input image array.
+        size: Desired size (width, height).
+    
     Returns:
-        np.ndarray: Resized image array.
+        Resized image array.
     """
-    try:
-        from keras.preprocessing.image import img_to_array, array_to_img
-        pil_img = array_to_img(img)
-        pil_img = pil_img.resize(size)
-        return img_to_array(pil_img)
-    except ImportError:
-        raise ImportError("Keras is required for image resizing.")
-    except Exception as e:
-        raise RuntimeError(f"Error resizing image: {str(e)}")
+    # Handle channel dimension
+    squeeze = False
+    if img.ndim == 3 and img.shape[-1] == 1:
+        img = img.squeeze(axis=-1)
+        squeeze = True
+    
+    pil_img = Image.fromarray(img.astype(np.uint8))
+    pil_img = pil_img.resize(size, Image.LANCZOS)
+    result = np.array(pil_img, dtype=np.float32)
+    
+    if squeeze:
+        result = np.expand_dims(result, axis=-1)
+    
+    return result
 
 
 def save_model_metadata(proj_name: str, classes: List[str], clf) -> bool:
     """
-    Save model metadata to disk using pickle.
+    Save model metadata to disk using JSON.
+    
     Args:
-        proj_name (str): Name of the project.
-        classes (List[str]): List of class names.
-        clf: Classifier object.
+        proj_name: Name of the project.
+        classes: List of class names.
+        clf: Classifier object (config will be extracted if available).
+    
     Returns:
-        bool: True if saved successfully, False otherwise.
+        True if saved successfully, False otherwise.
     """
+    import json
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
     try:
-        metadata = {'proj_name': proj_name, 'classes': classes, 'classifier': clf}
-        filepath = os.path.join('models', f'{proj_name}_metadata.pkl')
-        with open(filepath, 'wb') as f:
-            pickle.dump(metadata, f)
+        metadata = {
+            'proj_name': proj_name,
+            'classes': classes,
+            'classifier_type': type(clf).__name__,
+        }
+        
+        # Extract config if available
+        if hasattr(clf, 'get_config'):
+            metadata['config'] = clf.get_config()
+        
+        os.makedirs('models', exist_ok=True)
+        filepath = os.path.join('models', f'{proj_name}_metadata.json')
+        with open(filepath, 'w') as f:
+            json.dump(metadata, f, indent=2)
+        
+        logger.info(f"Model metadata saved to {filepath}")
         return True
     except Exception as e:
-        print(f"Error saving model metadata: {str(e)}")
+        logger.error(f"Error saving model metadata: {e}")
         return False

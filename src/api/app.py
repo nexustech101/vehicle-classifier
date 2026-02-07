@@ -30,7 +30,7 @@ from PIL import Image
 
 from src.api.service import VehicleClassificationAPI
 from src.api.logging_config import setup_api_logger
-from src.api.auth import get_current_user, authenticate_user, create_access_token, require_role
+from src.api.auth import get_current_user, authenticate_user, create_access_token, require_role, set_db
 from src.core.security import (
     sanitize_filename, validate_image_file, check_path_traversal,
     get_security_headers, validate_cors_origins, sanitize_logs
@@ -50,6 +50,7 @@ logger.info("Initializing FastAPI application")
 # Initialize services
 api = VehicleClassificationAPI()
 db = Database()
+set_db(db)  # Share database instance with auth module
 redis_client = get_redis_client()
 metrics = MetricsCollector()
 request_logger = RequestLogger()
@@ -275,8 +276,8 @@ async def load_image(file: UploadFile) -> tuple:
     try:
         contents = await file.read()
         
-        # Validate image file
-        if not validate_image_file(contents):
+        # Validate image file by sanitized filename
+        if not validate_image_file(safe_filename):
             raise ValidationError(message="Invalid image file")
         
         image = Image.open(io.BytesIO(contents)).convert('L')
@@ -716,13 +717,8 @@ async def classify_single(
         )
         
         # Record metrics
-        metrics.record_latency(
-            endpoint="/vehicle/classify",
-            duration_ms=result.processing_time_ms
-        )
-        metrics.record_classification(
-            confidence=result_dict.get('overall_confidence', 0)
-        )
+        metrics.record_latency("/vehicle/classify", result.processing_time_ms / 1000)
+        metrics.record_classification("vehicle_classify", result.processing_time_ms)
         
         elapsed_ms = (time.time() - start_time) * 1000
         logger.info(f"Classification successful ({elapsed_ms:.2f}ms)")
@@ -809,10 +805,7 @@ async def classify_batch(
         }
         
         # Record metrics
-        metrics.record_latency(
-            endpoint="/vehicle/classify-batch",
-            duration_ms=(time.time() - start_time) * 1000
-        )
+        metrics.record_latency("/vehicle/classify-batch", time.time() - start_time)
         
         # Log audit
         db.log_audit(
@@ -871,10 +864,7 @@ async def generate_report(
             pass  # Cache is optional
         
         # Record metrics
-        metrics.record_latency(
-            endpoint="/api/vehicle/report",
-            duration_ms=(time.time() - start_time) * 1000
-        )
+        metrics.record_latency("/vehicle/report", time.time() - start_time)
         
         # Log audit
         db.log_audit(
@@ -919,7 +909,7 @@ async def get_report(
             cached = redis_client.get(cache_key)
             if cached:
                 logger.info(f"Report retrieved from cache: {vehicle_id}")
-                metrics.record_cache_hit()
+                metrics.record_cache_hit("report_cache")
                 return format_response('success', json.loads(cached))
         except:
             pass
@@ -927,7 +917,7 @@ async def get_report(
         # Try database
         report = db.get_report(vehicle_id)
         if not report:
-            metrics.record_cache_miss()
+            metrics.record_cache_miss("report_cache")
             raise NotFoundError(resource=f"Report {vehicle_id}")
         
         # Log audit
@@ -938,7 +928,6 @@ async def get_report(
             details={}
         )
         
-        metrics.record_cache_hit()
         return format_response('success', report['data'])
     
     except (ValidationError, NotFoundError):

@@ -3,11 +3,11 @@
 from .train import (
     TrainingConfig,
     ModelTrainer,
-    TrainingOrchestrator,
+    TrainingPipeline,
 )
 
 __all__ = [
     'TrainingConfig',
     'ModelTrainer',
-    'TrainingOrchestrator',
+    'TrainingPipeline',
 ]
