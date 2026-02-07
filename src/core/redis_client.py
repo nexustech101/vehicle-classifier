@@ -3,14 +3,14 @@
 import logging
 import time
 import os
-from typing import Optional, Dict, Any
 import redis
 from redis.connection import ConnectionPool
+from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
 
-class ResilientRedisClient:
+class RedisClient:
     """Redis client with automatic reconnection and health checks."""
     
     def __init__(self, 
@@ -193,12 +193,12 @@ class ResilientRedisClient:
 
 
 # Global instance
-_redis_instance: Optional[ResilientRedisClient] = None
+_redis_instance: Optional[RedisClient] = None
 
 
-def get_redis_client() -> ResilientRedisClient:
+def get_redis_client() -> RedisClient:
     """Get or create global Redis client instance."""
     global _redis_instance
     if _redis_instance is None:
-        _redis_instance = ResilientRedisClient()
+        _redis_instance = RedisClient()
     return _redis_instance

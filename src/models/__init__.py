@@ -1,8 +1,13 @@
 """Vehicle classification models package."""
 
 from .classifiers import (
+    # Enums
+    BackboneType,
+    ConfidenceLevel,
+    # Base classes
     VehicleClassificationCNNBase,
     VehicleRegressionBase,
+    # Concrete classifiers
     MakeClassifier,
     ModelClassifier,
     TypeClassifier,
@@ -12,12 +17,23 @@ from .classifiers import (
     ConditionClassifier,
     StockOrModedClassifier,
     FunctionalUtilityClassifier,
-    VehiclePredictionPipeline,
+    # Data structures
+    ConfidenceMetrics,
+    VehicleAttributePrediction,
     VehicleClassificationResult,
     VehicleClassificationReport,
+    # Utility classes
+    PredictionConfidenceAnalyzer,
+    PredictionMapper,
+    ReportGenerator,
+    ModelRegistry,
+    # Pipeline
+    VehiclePredictionPipeline,
 )
 
 __all__ = [
+    'BackboneType',
+    'ConfidenceLevel',
     'VehicleClassificationCNNBase',
     'VehicleRegressionBase',
     'MakeClassifier',
@@ -29,7 +45,13 @@ __all__ = [
     'ConditionClassifier',
     'StockOrModedClassifier',
     'FunctionalUtilityClassifier',
-    'VehiclePredictionPipeline',
+    'ConfidenceMetrics',
+    'VehicleAttributePrediction',
     'VehicleClassificationResult',
     'VehicleClassificationReport',
+    'PredictionConfidenceAnalyzer',
+    'PredictionMapper',
+    'ReportGenerator',
+    'ModelRegistry',
+    'VehiclePredictionPipeline',
 ]
