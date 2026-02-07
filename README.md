@@ -15,7 +15,6 @@ A production-ready vehicle classification system powered by **9 deep learning mo
 
 - [Features](#features)
 - [Quick Start](#quick-start)
-- [Installation](#installation)
 - [Docker Deployment](#docker-deployment)
 - [Environment Variables](#environment-variables)
 - [Authentication & User Management](#authentication--user-management)
@@ -32,125 +31,57 @@ A production-ready vehicle classification system powered by **9 deep learning mo
 
 ## Features
 
-| Category | Details |
-|----------|---------|
-| **ML Models** | 9 classifiers with EfficientNetB0/ResNet50 transfer learning |
-| **API** | FastAPI with 13 REST endpoints and interactive Swagger docs |
-| **Auth** | JWT authentication with role-based access control (RBAC) |
-| **Caching** | Redis distributed caching with TTL and regional tracking |
-| **Deployment** | Docker Compose stack (FastAPI + Redis) with health checks |
-| **Logging** | Structured JSON logs with audit trail |
-| **Reports** | JSON and HTML vehicle classification reports |
-| **Batch** | Multi-image batch classification |
+- **9 ML classifiers** — EfficientNetB0/ResNet50 transfer learning across make, model, type, color, decade, country, condition, stock/modified, and functional utility
+- **FastAPI** — 13 REST endpoints with auto-generated Swagger/ReDoc docs
+- **JWT auth** — Role-based access control with Argon2 password hashing
+- **Redis caching** — Distributed cache with TTL and regional tracking
+- **Docker Compose** — One-command deployment (FastAPI + Redis) with health checks
+- **Structured logging** — JSON logs with full audit trail
+- **Reports** — JSON and HTML vehicle classification reports with batch support
 
 ---
 
 ## Quick Start
 
-### Docker (Recommended)
-
 ```bash
+# Docker (recommended)
 git clone https://github.com/yourusername/vehicle-classifier.git
 cd vehicle-classifier
 docker-compose up -d
-```
+# → http://localhost:8000/docs
 
-The API is available at **http://localhost:8000/docs**.
-
-### Local Development
-
-```bash
-python -m venv venv
-venv\Scripts\activate          # Windows
-# source venv/bin/activate     # macOS/Linux
+# Local development
+python -m venv venv && venv\Scripts\activate   # Windows (use source venv/bin/activate on Linux/macOS)
 pip install -r requirements.txt
 uvicorn src.api.app:app --host 0.0.0.0 --port 8000
 ```
 
 ---
 
-## Installation
-
-### Prerequisites
-
-- Python 3.10+
-- Docker & Docker Compose (for containerized deployment)
-- Redis (optional for local dev — caching degrades gracefully)
-
-### Local Setup
-
-```bash
-git clone https://github.com/yourusername/vehicle-classifier.git
-cd vehicle-classifier
-
-python -m venv venv
-venv\Scripts\activate
-pip install --upgrade pip
-pip install -r requirements.txt
-```
-
----
-
 ## Docker Deployment
 
-### Start Services
-
 ```bash
-docker-compose up -d
-docker-compose ps
+docker-compose up -d          # Start FastAPI (:8000) + Redis (:6379)
+docker-compose logs -f api    # Tail logs
+docker-compose up -d --build  # Rebuild after code changes
+docker-compose down -v        # Tear down (removes volumes)
 ```
 
-**Expected output:**
-
-| Container | Image | Port | Purpose |
-|-----------|-------|------|---------|
-| vehicle-classifier-api | vehicle-classifier:latest | 8000 | FastAPI application |
-| vehicle-classifier-redis | redis:7-alpine | 6379 | Distributed caching |
-
-### Access Points
-
-- **Swagger UI:** http://localhost:8000/docs
-- **ReDoc:** http://localhost:8000/redoc
-- **Health Check:** http://localhost:8000/health
-
-### Common Commands
-
-```bash
-docker-compose logs -f api          # Real-time API logs
-docker-compose restart api          # Restart API
-docker-compose up -d --build        # Rebuild and restart
-docker-compose down                 # Stop all services
-docker-compose down -v              # Stop and remove volumes
-docker stats                        # Resource usage
-```
-
-### Troubleshooting Docker
-
-| Issue | Fix |
-|-------|-----|
-| Port 8000 in use | Change port mapping in `docker-compose.yml` to `"8001:8000"` |
-| Redis not available | Run `docker-compose logs redis` to check health |
-| Code changes not reflecting | Ensure volume mount `./src:/app/src` is set, then `docker-compose restart api` |
-| Database errors | Run `docker-compose down -v && docker-compose up -d` (⚠️ loses data) |
+Access: [Swagger UI](http://localhost:8000/docs) · [ReDoc](http://localhost:8000/redoc) · [Health](http://localhost:8000/health)
 
 ---
 
 ## Environment Variables
 
-Create a `.env` file in the project root (docker-compose provides defaults):
+Create a `.env` in the project root (docker-compose provides defaults):
 
 ```bash
-# API / JWT
 SECRET_KEY=your-secret-key-change-in-production
 ACCESS_TOKEN_EXPIRE_MINUTES=30
 LOG_LEVEL=INFO
-
-# Redis
 REDIS_HOST=redis
 REDIS_PORT=6379
 REDIS_DB=0
-
-# CORS
 CORS_ORIGINS=http://localhost:3000,http://localhost:8000
 TRUSTED_HOSTS=localhost,127.0.0.1
 ```
@@ -159,137 +90,83 @@ TRUSTED_HOSTS=localhost,127.0.0.1
 
 ## Authentication & User Management
 
-The API uses **JWT (JSON Web Token)** authentication with role-based access control and **Argon2** password hashing.
+JWT authentication with RBAC and Argon2 hashing. A default `admin`/`admin` account is created on first startup — **change it immediately**.
 
-### Default Admin Account
-
-On first startup a bootstrap admin is created:
-
-| Field | Value |
-|-------|-------|
-| Username | `admin` |
-| Password | `admin` |
-| Role | `admin` |
-
-> **⚠️ Change the admin password immediately after first login.**
-
-### User Roles
-
-| Role | Permissions |
-|------|-------------|
-| **user** | Classification endpoints, own profile |
-| **admin** | Full access + user management (create, list, update, delete) |
-
-### Login
+Roles: **user** (classification, own profile) · **admin** (full access + user management)
 
 ```bash
+# Login
 curl -X POST http://localhost:8000/api/v2/auth/token \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "admin"}'
-```
 
-**Response:**
-```json
-{
-  "access_token": "eyJhbGciOiJIUzI1NiIs...",
-  "token_type": "bearer",
-  "expires_in": 1800
-}
-```
-
-### Register
-
-```bash
+# Register
 curl -X POST http://localhost:8000/api/v2/auth/register \
   -H "Content-Type: application/json" \
   -d '{"username": "john_doe", "email": "john@example.com", "password": "secure_password_123"}'
-```
 
-### Using Tokens
-
-All protected endpoints require the `Authorization` header:
-
-```bash
+# Use token
 TOKEN=$(curl -s -X POST http://localhost:8000/api/v2/auth/token \
   -H "Content-Type: application/json" \
   -d '{"username": "admin", "password": "admin"}' | jq -r '.access_token')
 
-curl -X GET http://localhost:8000/api/v2/users/me \
-  -H "Authorization: Bearer $TOKEN"
+curl http://localhost:8000/api/v2/users/me -H "Authorization: Bearer $TOKEN"
 ```
 
-### Token Details
-
-| Property | Value |
-|----------|-------|
-| Algorithm | HS256 (HMAC SHA-256) |
-| Expiration | 30 minutes (configurable) |
-| Claims | `sub` (username), `role`, `exp` (expiration) |
-
-### Admin Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v2/users/me` | Current user profile |
-| GET | `/api/v2/users?skip=0&limit=10` | List all users (admin) |
-| PATCH | `/api/v2/users/{username}/role` | Update role (admin) |
-| PATCH | `/api/v2/users/{username}/status` | Activate/deactivate (admin) |
-| DELETE | `/api/v2/users/{username}` | Delete user (admin) |
+Tokens are HS256 JWTs with 30-minute expiry. Claims: `sub` (username), `role`, `exp`.
 
 ---
 
 ## REST API
 
-### Endpoints (13 total)
+### Public
 
-| Method | Endpoint | Purpose | Auth |
-|--------|----------|---------|------|
-| GET | `/health` | Service health & status | No |
-| GET | `/api/models/metadata` | Model info & attributes | No |
-| POST | `/api/v2/auth/token` | Login (get JWT) | No |
-| POST | `/api/v2/auth/register` | Register new user | No |
-| GET | `/api/v2/users/me` | Current user profile | Yes |
-| GET | `/api/v2/users` | List all users | Admin |
-| PATCH | `/api/v2/users/{username}/role` | Update user role | Admin |
-| PATCH | `/api/v2/users/{username}/status` | Activate/deactivate | Admin |
-| DELETE | `/api/v2/users/{username}` | Delete user | Admin |
-| POST | `/api/vehicle/classify` | Single image classification | No |
-| POST | `/api/vehicle/classify-batch` | Batch processing | No |
-| POST | `/api/vehicle/report` | Generate JSON/HTML report | No |
-| GET | `/api/vehicle/report/{id}` | Retrieve cached report | No |
+```
+GET  /health                          # Service health
+GET  /api/models/metadata             # Model info & supported attributes
+POST /api/v2/auth/token               # Login → JWT
+POST /api/v2/auth/register            # Register new user
+```
+
+### Classification
+
+```
+POST /api/vehicle/classify            # Single image
+POST /api/vehicle/classify-batch      # Multiple images
+POST /api/vehicle/report              # Generate JSON/HTML report
+GET  /api/vehicle/report/{id}         # Retrieve cached report
+```
+
+### User Management (authenticated)
+
+```
+GET    /api/v2/users/me               # Own profile (user+)
+GET    /api/v2/users                  # List all users (admin)
+PATCH  /api/v2/users/{username}/role   # Update role (admin)
+PATCH  /api/v2/users/{username}/status # Activate/deactivate (admin)
+DELETE /api/v2/users/{username}        # Delete user (admin)
+```
 
 ### Examples
 
 ```bash
-# Single classification
 curl -X POST -F "file=@vehicle.jpg" http://localhost:8000/api/vehicle/classify
 
-# Batch processing
 curl -X POST -F "files=@car1.jpg" -F "files=@car2.jpg" \
   http://localhost:8000/api/vehicle/classify-batch
 
-# Generate HTML report
 curl -X POST -F "file=@vehicle.jpg" -F "format=html" \
   http://localhost:8000/api/vehicle/report > report.html
 ```
 
-### Response Example
+### Response
 
 ```json
 {
   "status": "success",
-  "timestamp": "2026-01-31T14:30:22.123",
   "data": {
     "predictions": {
-      "make": {
-        "attribute": "Make",
-        "value": "Toyota",
-        "confidence": 0.92,
-        "confidence_metrics": {
-          "uncertainty": 0.15,
-          "is_confident": true
-        }
-      }
+      "make": { "value": "Toyota", "confidence": 0.92, "confidence_metrics": { "uncertainty": 0.15, "is_confident": true } }
     },
     "overall_confidence": 0.87
   }
@@ -300,222 +177,99 @@ curl -X POST -F "file=@vehicle.jpg" -F "format=html" \
 
 ## Python API
 
-### Single Image
-
 ```python
 from src.api import VehicleClassificationAPI
 
 api = VehicleClassificationAPI()
+
+# Classify
 result = api.classify_image("vehicle.jpg")
+for name, pred in result['data']['predictions'].items():
+    print(f"{pred['attribute']}: {pred['value']} ({pred['confidence']:.1%})")
 
-if result['status'] == 'success':
-    for name, pred in result['data']['predictions'].items():
-        print(f"{pred['attribute']}: {pred['value']} ({pred['confidence']:.1%})")
+# Batch
+results = api.classify_batch(["car1.jpg", "car2.jpg"])
+
+# Reports
+api.generate_report("vehicle.jpg", vehicle_id="VEH_001", format='json')
+api.generate_report("vehicle.jpg", format='html')
 ```
 
-### Batch Processing
+### Direct Pipeline
 
 ```python
-images = ["car1.jpg", "car2.jpg", "car3.jpg"]
-results = api.classify_batch(images)
-print(f"Success rate: {results['summary']['successful']}/{results['summary']['total_images']}")
-```
-
-### Report Generation
-
-```python
-json_report = api.generate_report("vehicle.jpg", vehicle_id="VEH_001", format='json')
-html_report = api.generate_report("vehicle.jpg", format='html')
-with open("report.html", "w") as f:
-    f.write(html_report['data'])
-```
-
-### Direct Pipeline Usage
-
-```python
-import numpy as np
 from src.models import VehiclePredictionPipeline, MakeClassifier, TypeClassifier
 
 pipeline = VehiclePredictionPipeline()
-pipeline.initialize_models({
-    'make': MakeClassifier(),
-    'type': TypeClassifier(),
-})
-
-image = np.random.randn(100, 90, 1)
-result = pipeline.predict_single(image)
-print(f"Confidence: {result.overall_confidence:.1%}")
+pipeline.initialize_models({'make': MakeClassifier(), 'type': TypeClassifier()})
+result = pipeline.predict_single(image)  # expects 100×90 greyscale ndarray
 ```
 
 ---
 
 ## Security
 
-### Overview
+Argon2 password hashing · JWT (HS256, 30-min expiry) · RBAC · filename sanitization & path traversal detection · magic-number image validation (PNG/JPG/BMP/GIF, 16 MB max) · CORS origin validation (no wildcards) · Redis-backed rate limiting · full audit logging to SQLite · non-root Docker execution (`appuser`)
 
-| Feature | Implementation |
-|---------|---------------|
-| Password Hashing | Argon2 (GPU-resistant) |
-| Authentication | JWT tokens (HS256, 30-min expiry) |
-| Authorization | Role-based access control (user/admin) |
-| Input Validation | Filename sanitization, path traversal detection, magic number checks |
-| Security Headers | 6 standard headers on all responses |
-| CORS | Origin validation (no wildcards) |
-| Rate Limiting | IP + endpoint key generation for Redis-backed limiting |
-| Audit Logging | All user actions logged with IP, timestamp, and resource |
-| Docker | Non-root user execution (`appuser`) |
-
-### Security Headers
-
-All API responses include:
-
-- `X-Content-Type-Options: nosniff`
-- `X-Frame-Options: DENY`
-- `Content-Security-Policy: default-src 'self'`
-- `Strict-Transport-Security: max-age=31536000` (on HTTPS)
-- `X-XSS-Protection: 1; mode=block`
-- `Referrer-Policy: strict-origin-when-cross-origin`
-
-### Image Validation
-
-Uploaded images are validated by:
-- File magic numbers (PNG, JPG, BMP, GIF)
-- File extension matching
-- File size limits (16 MB max)
-
-### Audit Logging
-
-All user actions are logged to SQLite with user ID, action type, resource, IP address, and timestamp.
-
-```python
-from src.core.database import Database
-db = Database()
-logs = db.get_audit_logs(user_id="testuser", limit=100)
-```
+Response headers: `X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy`, `Strict-Transport-Security`, `X-XSS-Protection`, `Referrer-Policy`
 
 ### Production Checklist
 
-- [ ] Change `SECRET_KEY` to a strong random value
-- [ ] Update `CORS_ORIGINS` to production domains
-- [ ] Set `TRUSTED_HOSTS` to production hostnames
-- [ ] Enable HTTPS/TLS via reverse proxy (nginx)
-- [ ] Configure database backups
-- [ ] Set up log aggregation and alerting
-- [ ] Test rate limiting configuration
-- [ ] Verify audit logging
+- [ ] Rotate `SECRET_KEY` to a strong random value
+- [ ] Set `CORS_ORIGINS` and `TRUSTED_HOSTS` to production domains
+- [ ] Enable HTTPS via reverse proxy (nginx)
+- [ ] Configure database backups and log aggregation
 
 ---
 
 ## Architecture
 
-### Data Flow
-
 ```
-Image Upload → FastAPI → Load Image → Predict (9 Models)
-                                         ↓
-                               Aggregate Results
-                                    ↓
-                            Cache (Redis) + Response
+Image Upload → FastAPI → Preprocessing → 9 Model Ensemble → Aggregate
+                                                                ↓
+                                              Cache (Redis) + JSON/HTML Response
 ```
 
-### Authentication Flow
-
 ```
-Credentials → auth.py → Verify Password (Argon2)
-                              ↓
-                    JWT Token (HS256, 30-min)
-                              ↓
-               Authorization Header → verify_token()
-                              ↓
-                   Role-Based Access Control
+Credentials → Argon2 verify → JWT (HS256, 30-min) → Authorization header → RBAC middleware
 ```
 
 ### ML Pipeline
 
 ```
-INPUT (100×90 Greyscale Image)
-    ↓
-IMAGE PREPROCESSING (auto-normalize, resize)
-    ↓
-VEHICLE PREDICTION PIPELINE
-    ├── Make Classifier (100 classes)
-    ├── Model Classifier (dual-input, ~150 classes)
-    ├── Type Classifier (12 classes)
-    ├── Color Classifier (10 classes)
-    ├── Decade Classifier (70 classes)
-    ├── Country Classifier (70 classes)
-    ├── Condition Classifier (regression)
-    ├── Stock/Modified Classifier (binary)
-    └── Functional Utility Classifier (8 classes)
-    ↓
-CONFIDENCE METRICS → PREDICTION MAPPER → REPORT GENERATOR
-    ↓
-OUTPUT (VehicleClassificationResult)
+100×90 greyscale input
+  → Make (100)  Model (~150)  Type (12)  Color (10)  Decade (70)
+    Country (70)  Condition (regression)  Stock/Modified (binary)  Utility (8)
+  → Confidence metrics → Prediction mapper → Report generator
 ```
 
-### Design Patterns
-
-| Pattern | Usage |
-|---------|-------|
-| Singleton | ModelRegistry — thread-safe caching |
-| Factory | Dynamic model instantiation |
-| Strategy | Flexible training approaches |
-| Pipeline | Multi-model orchestration |
-| Data Mapper | Prediction output conversion |
-| Builder | Incremental report generation |
-| Dependency Injection | Component initialization |
-| Repository | Centralized model lifecycle |
+Design patterns: Singleton (ModelRegistry), Factory, Strategy, Pipeline, Data Mapper, Builder, DI, Repository.
 
 ---
 
 ## Classification Dimensions
 
-| Attribute | Classes | Type | Examples |
-|-----------|---------|------|----------|
-| Make | 100 | Multi-class | Toyota, Honda, Ford |
-| Model | ~150 | Multi-class | Camry, Accord, F-150 |
-| Type | 12 | Multi-class | Sedan, SUV, Truck, Van |
-| Color | 10 | Multi-class | Black, White, Silver, Red |
-| Decade | 70 | Multi-class | 1980s, 1990s, 2000s |
-| Country | 70 | Multi-class | USA, Japan, Germany |
-| Condition | 1 | Regression | 0.0–1.0 score |
-| Stock/Modified | 2 | Binary | Stock, Modified |
-| Functional Utility | 8 | Multi-class | Passenger, Commercial, Emergency |
+```
+Make              100 classes     multi-class    Toyota, Honda, Ford, ...
+Model            ~150 classes     multi-class    Camry, Accord, F-150, ...
+Type               12 classes     multi-class    Sedan, SUV, Truck, Van, ...
+Color              10 classes     multi-class    Black, White, Silver, Red, ...
+Decade             70 classes     multi-class    1980s, 1990s, 2000s, ...
+Country            70 classes     multi-class    USA, Japan, Germany, ...
+Condition           1 output      regression     0.0–1.0 score
+Stock/Modified      2 classes     binary         Stock, Modified
+Functional Utility  8 classes     multi-class    Passenger, Commercial, Emergency, ...
+```
 
 ---
 
 ## Logging & Monitoring
 
-### Log Files
-
-Structured JSON logs in `./logs/`:
-
-| File | Purpose |
-|------|---------|
-| `api.log` | API requests, responses, timings |
-| `training.log` | Model training progress & metrics |
-| `evaluation.log` | Model evaluation results |
-
-### Log Format
-
-```json
-{
-  "timestamp": "2026-01-15T10:30:45.123456",
-  "level": "INFO",
-  "logger": "api",
-  "module": "app",
-  "function": "classify_single",
-  "line": 145,
-  "message": "Classification successful for vehicle.jpg (45.23ms)"
-}
-```
-
-### Commands
+Structured JSON logs written to `./logs/` — `api.log`, `training.log`, `evaluation.log`.
 
 ```bash
-tail -f logs/api.log                    # Real-time API logs
-cat logs/api.log | jq '.' | less        # Pretty-print JSON logs
-docker stats vehicle-classifier-api     # Container resource usage
+tail -f logs/api.log               # Stream API logs
+cat logs/api.log | jq '.' | less   # Pretty-print
 ```
 
 ---
@@ -525,55 +279,33 @@ docker stats vehicle-classifier-api     # Container resource usage
 ```
 vehicle-classifier/
 ├── src/
-│   ├── api/
-│   │   ├── app.py                  # FastAPI application (13 endpoints)
-│   │   ├── auth.py                 # JWT auth & user verification
-│   │   ├── service.py              # VehicleClassificationAPI
-│   │   ├── cache.py                # Redis caching utilities
-│   │   └── logging_config.py       # Structured logging setup
-│   ├── core/
-│   │   ├── database.py             # SQLite + users table + CRUD
-│   │   ├── redis_client.py         # Redis connection manager
-│   │   ├── security.py             # Input validation & security
-│   │   ├── errors.py               # Custom exceptions
-│   │   └── monitoring.py           # Metrics & request logging
-│   ├── models/
-│   │   └── classifiers.py          # 9 transfer learning classifiers
-│   ├── training/
-│   │   └── train.py                # Training pipeline orchestrator
-│   └── preprocessing/
-│       ├── processor.py            # Image preprocessing
-│       └── utils.py                # Utility functions
-├── tests/
-│   ├── conftest.py                 # pytest fixtures
-│   ├── test_api.py                 # API endpoint tests
-│   ├── test_auth.py                # Authentication tests
-│   ├── test_security.py            # Security tests
-│   └── test_monitoring.py          # Monitoring tests
+│   ├── api/                        # FastAPI app, auth, service, cache, logging
+│   ├── core/                       # Database, Redis, security, errors, monitoring
+│   ├── models/                     # 9 transfer learning classifiers
+│   ├── training/                   # Training pipeline
+│   └── preprocessing/              # Image preprocessing & utils
+├── tests/                          # pytest suite (API, auth, security, monitoring)
 ├── checkpoints/                    # Trained model weights
 ├── db/                             # SQLite database
 ├── logs/                           # Application logs
 ├── uploads/                        # Temporary image uploads
-├── docker-compose.yml              # Container orchestration
-├── Dockerfile                      # Container image
-├── main.py                         # Application entry point
-├── requirements.txt                # Python dependencies
-└── README.md                       # This file
+├── docker-compose.yml
+├── Dockerfile
+├── main.py
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
 ## Troubleshooting
 
-| Problem | Solution |
-|---------|----------|
-| Models not loading | `ModelRegistry().get_cached_model_names()` to check, `.clear_cache()` to reset |
-| Out of memory | `ModelRegistry().clear_cache()` to free cached models |
-| API not responding | `curl http://localhost:8000/health` to verify |
-| Token expired / invalid | Re-authenticate: `POST /api/v2/auth/token` |
-| Permission denied | Ensure you're using an admin token for admin endpoints |
-| Low confidence | Inspect `raw_probabilities` in the prediction response |
+- **Models not loading** — `ModelRegistry().get_cached_model_names()` to inspect, `.clear_cache()` to reset
+- **Out of memory** — `ModelRegistry().clear_cache()`
+- **API not responding** — `curl http://localhost:8000/health`
+- **Token expired** — re-authenticate via `POST /api/v2/auth/token`
+- **Permission denied** — verify you're using an admin token for admin endpoints
 
 ---
 
-**Version:** 2.1 · **Status:** Production Ready · **Last Updated:** February 2026
+**Version 2.1** · Production Ready · February 2026
